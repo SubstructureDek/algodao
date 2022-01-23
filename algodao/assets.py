@@ -3,21 +3,16 @@ import json
 import base64
 import hashlib
 import logging
-from typing import Dict, TypedDict
+from typing import Dict
 
 from algosdk.v2client.algod import AlgodClient
 from algosdk.future.transaction import AssetConfigTxn
 
 from algodao.helpers import wait_for_confirmation
+from algodao.types import PendingTransactionInfo
 
 log = logging.getLogger(__name__)
 
-PendingTransactionInfo = TypedDict(
-    'PendingTransactionInfo',
-    {
-        'asset-index': int,
-    }
-)
 
 def createmetadata(
         name: str,
