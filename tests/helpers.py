@@ -7,6 +7,7 @@ import subprocess
 import algosdk.account
 import algosdk.future.transaction
 import algosdk.mnemonic
+from algosdk.v2client.algod import AlgodClient
 
 import algodao.helpers
 
@@ -28,6 +29,10 @@ def _cli_passphrase_for_account(address):
             % (address, process.stdout.decode("utf8"))
         )
     return passphrase
+
+
+def _privkey_for_account(addr):
+    return algosdk.mnemonic.to_private_key(_cli_passphrase_for_account(addr))
 
 
 def call_sandbox_command(*args):
@@ -80,38 +85,23 @@ def add_standalone_account():
     return private_key, address
 
 
-def fund_account(address, initial_funds=1000000000):
+def fund_account(
+        client: AlgodClient,
+        address: str,
+        initial_funds: int
+):
     """Fund provided `address` with `initial_funds` amount of microAlgos."""
     initial_funds_address = _initial_funds_address()
     if initial_funds_address is None:
         raise Exception("Initial funds weren't transferred!")
-    _add_transaction(
+    algodao.helpers.add_transaction(
+        client,
         initial_funds_address,
         address,
-        _cli_passphrase_for_account(initial_funds_address),
+        _privkey_for_account(initial_funds_address),
         initial_funds,
         "Initial funds",
     )
 
 
-def _add_transaction(sender, receiver, passphrase, amount, note):
-    """Create and sign transaction from provided arguments.
 
-    Returned non-empty tuple carries field where error was raised and description.
-    If the first item is None then the error is non-field/integration error.
-    Returned two-tuple of empty strings marks successful transaction.
-    """
-    client = algodao.helpers.createclient()
-    params = client.suggested_params()
-    unsigned_txn = algosdk.future.transaction.PaymentTxn(
-        sender,
-        params,
-        receiver,
-        amount,
-        None,
-        note.encode()
-    )
-    signed_txn = unsigned_txn.sign(algosdk.mnemonic.to_private_key(passphrase))
-    transaction_id = client.send_transaction(signed_txn)
-    algodao.helpers.wait_for_confirmation(client, transaction_id)
-    return transaction_id

@@ -9,7 +9,7 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.future.transaction import AssetConfigTxn
 
 from algodao.helpers import wait_for_confirmation
-from algodao.types import PendingTransactionInfo
+from algodao.types import PendingTransactionInfo, AccountInfo
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ def createmetadata(
         'extra_metadata': extra_metadata.decode(),
     }
 
+
 def createasset(
         client: AlgodClient,
         accountaddr: str,
@@ -38,7 +39,7 @@ def createasset(
         unitname: str,
         assetname: str,
         url: str,
-):
+) -> int:
     log.info(f'Creating asset {assetname}')
     params = client.suggested_params()
     metadata_str = json.dumps(metadata)
@@ -94,13 +95,22 @@ def createasset(
     wait_for_confirmation(client, txid)
     try:
         ptx: PendingTransactionInfo = client.pending_transaction_info(txid)
-        print(ptx)
+        log.info(ptx)
         assetid = ptx['asset-index']
         printcreatedasset(client, accountaddr, assetid)
         printassetholding(client, accountaddr, assetid)
     except:
         log.exception("Could not extract created asset info")
         raise
+    return assetid
+
+
+def hasasset(client: AlgodClient, addr: str, creator: str, assetid: int):
+    info: AccountInfo = client.account_info(addr)
+    for asset in info['assets']:
+        if asset['creator'] == creator and asset['asset-id'] == assetid:
+            return True
+    return False
 
 
 def printcreatedasset(client: AlgodClient, accountaddr: str, assetid: int):

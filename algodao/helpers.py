@@ -1,5 +1,6 @@
 import logging
 
+import algosdk.future.transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 
@@ -64,3 +65,33 @@ def loggingconfig():
     formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
     console.setFormatter(formatter)
     logging.getLogger().addHandler(console)
+
+
+def add_transaction(
+        client: AlgodClient,
+        sender: str,
+        receiver: str,
+        privkey: str,
+        amount: int,
+        note: str
+):
+    """Create and sign transaction from provided arguments.
+
+    Returned non-empty tuple carries field where error was raised and description.
+    If the first item is None then the error is non-field/integration error.
+    Returned two-tuple of empty strings marks successful transaction.
+    """
+    params = client.suggested_params()
+    unsigned_txn = algosdk.future.transaction.PaymentTxn(
+        sender,
+        params,
+        receiver,
+        amount,
+        None,
+        note.encode()
+    )
+    signed_txn = unsigned_txn.sign(privkey)
+    transaction_id = client.send_transaction(signed_txn)
+    wait_for_confirmation(client, transaction_id)
+    return transaction_id
+
