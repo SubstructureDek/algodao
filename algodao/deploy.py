@@ -1,8 +1,9 @@
 # based off https://github.com/algorand/docs/blob/cdf11d48a4b1168752e6ccaf77c8b9e8e599713a/examples/smart_contracts/v2/python/stateful_smart_contracts.py
 
 import base64
-import datetime
+import os
 
+import dotenv
 from algosdk.future import transaction
 from algosdk import account, mnemonic
 from algosdk.v2client import algod
@@ -10,9 +11,11 @@ from pyteal import compileTeal, Mode
 
 from algodao.voting import approval_program, clear_state_program
 
+dotenv.load_dotenv()
+
 # user declared account mnemonics
-creator_mnemonic = "Your 25-word mnemonic goes here"
-user_mnemonic = "A second distinct 25-word mnemonic goes here"
+creator_mnemonic = os.getenv("CREATOR_MNEMONIC")
+user_mnemonic = os.getenv("USER_MNEMONIC")
 
 # user declared algod connection parameters. Node must have EnableDeveloperAPI set to true in its config
 algod_address = "http://localhost:4001"
@@ -318,7 +321,7 @@ def main():
     approval_program_ast = approval_program()
     # compile program to TEAL assembly
     approval_program_teal = compileTeal(
-        approval_program_ast, mode=Mode.Application, version=2
+        approval_program_ast, mode=Mode.Application, version=4
     )
     # compile program to binary
     approval_program_compiled = compile_program(algod_client, approval_program_teal)
@@ -327,7 +330,7 @@ def main():
     clear_state_program_ast = clear_state_program()
     # compile program to TEAL assembly
     clear_state_program_teal = compileTeal(
-        clear_state_program_ast, mode=Mode.Application, version=2
+        clear_state_program_ast, mode=Mode.Application, version=4
     )
     # compile program to binary
     clear_state_program_compiled = compile_program(
