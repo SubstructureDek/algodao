@@ -7,7 +7,11 @@ from typing import Dict
 
 from algosdk.v2client.algod import AlgodClient
 from algosdk.future.transaction import AssetConfigTxn
+import pyteal
+from pyteal import App, Seq, Bytes, Btoi, Txn, Int, Assert, Return, AssetHolding
+from pyteal import Cond
 
+import algodao.deploy
 from algodao.helpers import wait_for_confirmation
 from algodao.types import PendingTransactionInfo, AccountInfo
 
@@ -120,4 +124,50 @@ def printcreatedasset(client: AlgodClient, accountaddr: str, assetid: int):
 def printassetholding(client: AlgodClient, accountaddr: str, assetid: int):
     pass
 
+class NftCheckProgram:
+    def approval_program(self):
+        on_creation = Seq(
+            [
+                App.globalPut(Bytes("Creator"), Txn.sender()),
+                Assert(Txn.application_args.length() == Int(1)),
+                App.globalPut(Bytes("AssetId"), Btoi(Txn.application_args[0])),
+                Return(Int(1)),
+            ]
+        )
+        is_creator = Txn.sender() == App.globalGet(Bytes("Creator"))
+        assetbalance = AssetHolding.balance(
+            Txn.sender(),
+            App.globalGet(Bytes("AssetId"))
+        )
+        on_run = Seq(
+            assetbalance,
+            Assert(assetbalance.hasValue()),
+            Assert(assetbalance.value() > Int(0))
+        )
+        program = Cond(
+            [Txn.application_id() == Int(0), on_creation],
+            [Int(1), on_run],
+        )
+        return program
 
+    def clear_state_program(self):
+
+
+    def compile(self, client: AlgodClient, assetid: int, privkey: str):
+        program = self.approval_program()
+        teal = pyteal.compileTeal(
+            program,
+            mode=pyteal.Mode.Application,
+            version=5
+        )
+        compiled = base64.b64decode(client.compile(teal)['result'])
+        args = [assetid.to_bytes(8, 'big')]
+        appid = algodao.deploy.create_app(
+            client,
+            privkey,
+            program,
+            clear_program,
+            global_schema,
+            local_schema,
+            args
+        )
