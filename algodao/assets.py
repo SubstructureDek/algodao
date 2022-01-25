@@ -5,11 +5,12 @@ import hashlib
 import logging
 from typing import Dict
 
+import algosdk.future.transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.future.transaction import AssetConfigTxn
 import pyteal
 from pyteal import App, Seq, Bytes, Btoi, Txn, Int, Assert, Return, AssetHolding
-from pyteal import Cond
+from pyteal import Cond, Global
 
 import algodao.deploy
 from algodao.helpers import wait_for_confirmation
@@ -124,17 +125,17 @@ def printcreatedasset(client: AlgodClient, accountaddr: str, assetid: int):
 def printassetholding(client: AlgodClient, accountaddr: str, assetid: int):
     pass
 
+
 class NftCheckProgram:
     def approval_program(self):
         on_creation = Seq(
             [
-                App.globalPut(Bytes("Creator"), Txn.sender()),
                 Assert(Txn.application_args.length() == Int(1)),
                 App.globalPut(Bytes("AssetId"), Btoi(Txn.application_args[0])),
                 Return(Int(1)),
             ]
         )
-        is_creator = Txn.sender() == App.globalGet(Bytes("Creator"))
+        is_creator = Txn.sender() == Global.creator_address()
         assetbalance = AssetHolding.balance(
             Txn.sender(),
             App.globalGet(Bytes("AssetId"))
@@ -142,32 +143,42 @@ class NftCheckProgram:
         on_run = Seq(
             assetbalance,
             Assert(assetbalance.hasValue()),
-            Assert(assetbalance.value() > Int(0))
+            Assert(assetbalance.value() > Int(0)),
+            Return(Int(1))
         )
         program = Cond(
             [Txn.application_id() == Int(0), on_creation],
-            [Int(1), on_run],
+            [Int(1) == Int(1), on_run],
         )
         return program
 
-    def clear_state_program(self):
-
-
-    def compile(self, client: AlgodClient, assetid: int, privkey: str):
+    def deploy(self, client: AlgodClient, assetid: int, privkey: str):
         program = self.approval_program()
         teal = pyteal.compileTeal(
             program,
             mode=pyteal.Mode.Application,
-            version=5
+            version=4
         )
-        compiled = base64.b64decode(client.compile(teal)['result'])
+        compiled = algodao.deploy.compile_program(client, teal)
         args = [assetid.to_bytes(8, 'big')]
+        clear_program = Return(Int(1))
+        clear_program_compiled = algodao.deploy.compile_program(
+            client,
+            pyteal.compileTeal(
+                clear_program,
+                mode=pyteal.Mode.Application,
+                version=4
+            )
+        )
+        global_schema = algosdk.future.transaction.StateSchema(1, 0)
+        local_schema = algosdk.future.transaction.StateSchema(0, 0)
         appid = algodao.deploy.create_app(
             client,
             privkey,
-            program,
-            clear_program,
+            compiled,
+            clear_program_compiled,
             global_schema,
             local_schema,
             args
         )
+        return appid
