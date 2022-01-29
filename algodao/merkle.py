@@ -48,6 +48,10 @@ class MerkleTree:
         self._root: Node = self._buildtree(leaves)
         self._levels: Dict[int, List[Node]] = self._createlevels()
 
+    @property
+    def roothash(self) -> bytes:
+        return self._root.value
+
     @classmethod
     def _buildtree(self, leaves: List[Node]) -> Node:
         assert len(leaves) % 2 == 0

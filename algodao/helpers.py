@@ -1,4 +1,5 @@
 import logging
+import os
 
 import algosdk.future.transaction
 from algosdk.v2client.algod import AlgodClient
@@ -46,11 +47,28 @@ def createclient() -> AlgodClient:
     return AlgodClient(algod_token, algod_address)
 
 
+def algodclient_purestake() -> AlgodClient:
+    algod_address = "https://mainnet-algorand.api.purestake.io/ps2"
+    token = os.getenv('PURESTAKE_API_TOKEN')
+    headers = {
+        'X-API-Key': token,
+    }
+    return AlgodClient(token, algod_address, headers=headers)
+
+
 def indexer_client() -> IndexerClient:
     """Instantiate and return Indexer client object."""
     indexer_address = "http://localhost:8980"
     indexer_token = 'a' * 64
     return IndexerClient(indexer_token, indexer_address)
+
+
+def indexer_purestake() -> IndexerClient:
+    indexer_address = 'https://mainnet-algorand.api.purestake.io/idx2'
+    headers = {
+        'X-API-Key': os.getenv('PURESTAKE_API_TOKEN')
+    }
+    return IndexerClient('', indexer_address, headers)
 
 
 def loggingconfig():

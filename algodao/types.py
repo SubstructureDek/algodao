@@ -26,3 +26,19 @@ AccountInfo = TypedDict(
         'assets': List[AssetInfo]
     }
 )
+
+
+AssetBalanceInfo = TypedDict(
+    'AssetBalanceInfo',
+    {
+        'amount': int,
+        'address': str,
+    }
+)
+
+AssetBalances = TypedDict(
+    'AssetBalances',
+    {
+        'balances': List[AssetBalanceInfo],
+    }
+)
