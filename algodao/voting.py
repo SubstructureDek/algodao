@@ -195,7 +195,6 @@ class TokenDistributionTree:
                 Global.round() <= App.globalGet(Bytes("RegEnd")),
             )
         )
-        on_register = Return(Int(1))
         address = Txn.application_args[1]  # bytes
         count = Txn.application_args[2]  # bytes representation of a uint64
         index = Btoi(Txn.application_args[3])  # uint64
