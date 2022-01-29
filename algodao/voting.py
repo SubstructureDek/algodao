@@ -1,7 +1,40 @@
 # This example is provided for informational purposes only and has not been
 # audited for security.
-
+import pyteal
 from pyteal import *
+
+
+class ProposalContract:
+    def __init__(
+            self,
+            name: str,
+            start_vote: int,
+            end_vote: int,
+            num_options: int,
+    ):
+        self._name: str = name
+        self._start_vote: int = start_vote
+        self._end_vote: int = end_vote
+        self._num_options: int = num_options
+
+    def approval_program(self):
+        expected_args = 4
+        on_creation = Seq([
+            Assert(Txn.application_args.length() == Int(expected_args)),
+            App.globalPut(Bytes("VoteBegin"), Btoi(Txn.application_args[0])),
+            App.globalPut(Bytes("VoteEnd"), Btoi(Txn.application_args[1])),
+            Return(Int(1)),
+        ])
+        is_creator = Txn.sender() == Global.creator_address()
+        option = Btoi(Txn.application_args[1])
+        votes = Btoi(Txn.application_args[2])
+        on_vote = Seq([
+            Assert(And(
+                Global.round() >= App.globalGet(Bytes("VoteBegin")),
+                Global.round() <= App.globalGet(Bytes("VoteEnd"))
+            )),
+            App.localPut(Txn.sender(), Bytes("Voted" + str(option)), votes)
+        ])
 
 
 def approval_program():

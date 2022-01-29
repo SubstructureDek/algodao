@@ -110,10 +110,10 @@ def createasset(
     return assetid
 
 
-def hasasset(client: AlgodClient, addr: str, creator: str, assetid: int):
+def hasasset(client: AlgodClient, addr: str, assetid: int):
     info: AccountInfo = client.account_info(addr)
     for asset in info['assets']:
-        if asset['creator'] == creator and asset['asset-id'] == assetid:
+        if asset['asset-id'] == assetid:
             return True
     return False
 
