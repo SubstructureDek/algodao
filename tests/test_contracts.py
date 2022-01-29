@@ -1,4 +1,5 @@
 import logging
+from collections import OrderedDict
 
 import algosdk.error
 import algosdk.future.transaction
@@ -7,11 +8,36 @@ import pytest
 import algodao.deploy
 import algodao.helpers
 import algodao.assets
+import algodao.voting
 from algodao.types import AccountInfo
 
 import tests.helpers
 
 log = logging.getLogger(__name__)
+
+
+def test_distributiontree():
+    amount = 1000000
+    algod = algodao.helpers.createclient()
+    privkey, addr = tests.helpers.add_standalone_account()
+    tests.helpers.fund_account(algod, addr, amount)
+    token = algodao.voting.ElectionToken(1234)
+    addr2count = OrderedDict({
+        'a'*64: 1000,
+        'b'*64: 1500,
+        'c'*64: 2200,
+        'd'*64: 1523,
+    })
+    status = algod.status()
+    beginreg = status['last-round']
+    endreg = beginreg + 10
+    tree = algodao.voting.TokenDistributionTree(
+        token,
+        addr2count,
+        beginreg,
+        endreg,
+    )
+    tree.createcontract(algod, addr, privkey)
 
 
 def test_createaccount():

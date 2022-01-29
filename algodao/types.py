@@ -5,6 +5,7 @@ PendingTransactionInfo = TypedDict(
     'PendingTransactionInfo',
     {
         'asset-index': int,
+        'application-index': int,
     }
 )
 
