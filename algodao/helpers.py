@@ -1,9 +1,13 @@
+import base64
 import logging
 import os
 
-import algosdk.future.transaction
+import algosdk
+from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
+
+log = logging.getLogger(__name__)
 
 
 def wait_for_confirmation(
@@ -100,7 +104,7 @@ def add_transaction(
     Returned two-tuple of empty strings marks successful transaction.
     """
     params = client.suggested_params()
-    unsigned_txn = algosdk.future.transaction.PaymentTxn(
+    unsigned_txn = transaction.PaymentTxn(
         sender,
         params,
         receiver,
@@ -113,3 +117,24 @@ def add_transaction(
     wait_for_confirmation(client, transaction_id)
     return transaction_id
 
+
+def int2bytes(num: int):
+    return num.to_bytes(8, "big")
+
+
+def optinapp(algod: AlgodClient, private_key: str, addr: str, appid: int):
+    """Opt-in to an application"""
+    log.info(f"Opting {addr} into application {appid}")
+    params = algod.suggested_params()
+    txn = transaction.ApplicationOptInTxn(addr, params, appid)
+    signed = txn.sign(private_key)
+    txid = algod.send_transaction(signed)
+    wait_for_confirmation(algod, txid)
+    # transaction_response = algod.pending_transaction_info(txid)
+    # log.info("OptIn to app-id:", transaction_response["txn"]["txn"]["apid"])
+
+
+def writedryrun(algod, signed, fname):
+    drr = transaction.create_dryrun(algod, [signed])
+    with open(fname, 'wb') as fp:
+        fp.write(base64.b64decode(algosdk.encoding.msgpack_encode(drr)))

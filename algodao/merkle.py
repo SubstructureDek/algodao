@@ -13,7 +13,7 @@ class Node:
 
     @classmethod
     def from_value(cls, value: bytes):
-        return Node(None, None, value)
+        return Node(None, None, cls.hash(value))
 
     @classmethod
     def hash(cls, value: bytes):
@@ -87,17 +87,18 @@ class MerkleTree:
     def createproof(self, index) -> List[bytes]:
         hashes: List[bytes] = list()
         depth = self._depth
+        assert depth > 0
         while depth != 0:
             if index % 2 == 0:
                 left = self._levels[depth][index]
                 right = self._levels[depth][index+1]
+                hashes.append(right.value)
             else:
                 left = self._levels[depth][index-1]
                 right = self._levels[depth][index]
-            hash = Node.hash(left.value + right.value)
-            hashes.append(hash)
+                hashes.append(left.value)
             index = index // 2
             depth -= 1
         assert index in (0, 1)
-        assert hashes[-1] == self._root.value
+        assert(Node.hash(left.value + right.value) == self._root.value)
         return hashes

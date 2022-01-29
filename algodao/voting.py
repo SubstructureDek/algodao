@@ -4,7 +4,7 @@ import abc
 import base64
 import logging
 from collections import OrderedDict
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Optional
 
 import pyteal
 import algosdk.account
@@ -89,13 +89,19 @@ class TokenDistributionTree:
     ):
         self._token = token
         self._addr2count = addr2count
+        # note that for simplicity in the teal contract, the count here is
+        # represented in its uint64 bytes representation rather than a human
+        # readable representation; e.g., if address 'abcd' is assigned a
+        # count of 8, the leaf value that is hashed is:
+        # b'abcd:\x00\x00\x00\x00\x00\x00\x00\x10'
         inputs: List[bytes] = [
-            f'{address}:{count}'.encode('utf-8')
+            f'{address}:'.encode('utf-8') + algodao.helpers.int2bytes(count)
             for address, count in self._addr2count.items()
         ]
         self._tree = MerkleTree(inputs)
         self._beginreg = beginreg
         self._endreg = endreg
+        self._appid: Optional[int] = None
 
     def createcontract(
             self,
@@ -129,7 +135,29 @@ class TokenDistributionTree:
         response: PendingTransactionInfo = algod.pending_transaction_info(txid)
         app_id = response['application-index']
         log.info(f'Created new app-id: {app_id}')
+        self._appid = app_id
         return app_id
+
+    def callapp(self, algod: AlgodClient, addr: str, privkey: str):
+        assert addr in self._addr2count
+        index = list(self._addr2count.keys()).index(addr)
+        proof: List[bytes] = self._tree.createproof(index)
+        count: int = self._addr2count[addr]
+        # concatenate all the proof hashes together. the contract will index
+        # into the byte array as appropriate while stepping through the proof
+        proof_bytes: bytes = b''.join(proof)
+        args: List[bytes] = [
+            b'claim',
+            addr.encode('utf-8'),
+            algodao.helpers.int2bytes(count),
+            algodao.helpers.int2bytes(index),
+            proof_bytes
+        ]
+        params = algod.suggested_params()
+        txn = transaction.ApplicationNoOpTxn(addr, params, self._appid, args)
+        signed = txn.sign(privkey)
+        txid = algod.send_transaction(signed)
+        algodao.helpers.wait_for_confirmation(algod, txid)
 
     def createappargs(self):
         return [
@@ -167,6 +195,7 @@ class TokenDistributionTree:
                 Global.round() <= App.globalGet(Bytes("RegEnd")),
             )
         )
+        on_register = Return(Int(1))
         address = Txn.application_args[1]  # bytes
         count = Txn.application_args[2]  # bytes representation of a uint64
         index = Btoi(Txn.application_args[3])  # uint64
@@ -176,7 +205,7 @@ class TokenDistributionTree:
         on_claim = Seq([
             Assert(
                 And(
-                    Txn.application_args.length() == Int(3),
+                    Txn.application_args.length() == Int(5),
                     Global.round() >= App.globalGet(Bytes("RegBegin")),
                     Global.round() <= App.globalGet(Bytes("RegEnd")),
                 )
@@ -210,13 +239,13 @@ class TokenDistributionTree:
                     If(
                         levelindex.load() % Int(2) == Int(0),
                         hash.store(Sha256(Concat(
-                            Substring(proof, i.load(), i.load() + Int(32)),
-                            hash.load())))
-                        ,
-                        hash.store(Sha256(Concat(
                             hash.load(),
-                            Substring(proof, i.load(), i.load() + Int(32))))
-                        )
+                            Substring(proof, i.load(), i.load() + Int(32)),
+                        ))),
+                        hash.store(Sha256(Concat(
+                            Substring(proof, i.load(), i.load() + Int(32)),
+                            hash.load()
+                        )))
                     ),
                     levelindex.store(levelindex.load() / Int(2)),
                 ])

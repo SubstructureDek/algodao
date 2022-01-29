@@ -19,25 +19,31 @@ log = logging.getLogger(__name__)
 def test_distributiontree():
     amount = 1000000
     algod = algodao.helpers.createclient()
-    privkey, addr = tests.helpers.add_standalone_account()
-    tests.helpers.fund_account(algod, addr, amount)
+    creatorprivkey, creatoraddr = tests.helpers.add_standalone_account()
+    tests.helpers.fund_account(algod, creatoraddr, amount)
+    userprivkey, useraddr = tests.helpers.add_standalone_account()
+    tests.helpers.fund_account(algod, useraddr, amount)
     token = algodao.voting.ElectionToken(1234)
-    addr2count = OrderedDict({
-        'a'*64: 1000,
+    addr2count: OrderedDict[str, int] = OrderedDict({
+        useraddr: 1000,
         'b'*64: 1500,
         'c'*64: 2200,
         'd'*64: 1523,
     })
     status = algod.status()
     beginreg = status['last-round']
-    endreg = beginreg + 10
+    # make the registration period very long for testing so that we can take
+    # a dry-run and debug it for a long period if needed
+    endreg = beginreg + 1000
     tree = algodao.voting.TokenDistributionTree(
         token,
         addr2count,
         beginreg,
         endreg,
     )
-    tree.createcontract(algod, addr, privkey)
+    appid = tree.createcontract(algod, creatoraddr, creatorprivkey)
+    algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
+    tree.callapp(algod, useraddr, userprivkey)
 
 
 def test_createaccount():
