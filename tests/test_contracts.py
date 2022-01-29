@@ -21,9 +21,9 @@ def test_distributiontree():
     algod = algodao.helpers.createclient()
     creatorprivkey, creatoraddr = tests.helpers.add_standalone_account()
     tests.helpers.fund_account(algod, creatoraddr, amount)
+    token = algodao.voting.ElectionToken(_createnft(algod, creatoraddr, creatorprivkey))
     userprivkey, useraddr = tests.helpers.add_standalone_account()
     tests.helpers.fund_account(algod, useraddr, amount)
-    token = algodao.voting.ElectionToken(1234)
     addr2count: OrderedDict[str, int] = OrderedDict({
         useraddr: 1000,
         'b'*64: 1500,
@@ -42,8 +42,20 @@ def test_distributiontree():
         endreg,
     )
     appid = tree.createcontract(algod, creatoraddr, creatorprivkey)
-    algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
+    appaddr = algosdk.logic.get_application_address(appid)
+    tests.helpers.fund_account(algod, appaddr, 1000000)
+    # tree.xferelectiontoken(algod, 10000, creatoraddr, creatorprivkey)
+    # algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
+    assetid = tree.inittoken(algod, useraddr, userprivkey)
+    import ipdb; ipdb.set_trace()
+    algodao.helpers.optinasset(algod, useraddr, userprivkey, assetid)
     tree.callapp(algod, useraddr, userprivkey)
+    useraccount = algod.account_info(useraddr)
+    creatoraccount = algod.account_info(creatoraddr)
+    appaccount = algod.account_info(appaddr)
+    log.info(f'User account: {useraccount}')
+    log.info(f'Creator account: {creatoraccount}')
+    log.info(f'Application account: {appaccount}')
 
 
 def test_createaccount():
@@ -62,7 +74,7 @@ def test_nfttransfer():
     privkey, addr = tests.helpers.add_standalone_account()
     tests.helpers.fund_account(client, addr, amount)
     assetid = _createnft(client, addr, privkey)
-    assert algodao.assets.hasasset(client, addr, addr, assetid)
+    assert algodao.assets.hasasset(client, addr, assetid)
 
     recvprivkey, recvaddr = tests.helpers.add_standalone_account()
     tests.helpers.fund_account(client, recvaddr, 1000000)
@@ -93,7 +105,7 @@ def test_nfttransfer():
 
 
 def _createnft(client, addr, privkey) -> int:
-    count = 100
+    count = 10000
     unitname = "MYNFT"
     assetname = "MyNFT"
     metadata = algodao.assets.createmetadata(

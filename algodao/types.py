@@ -43,3 +43,11 @@ AssetBalances = TypedDict(
         'balances': List[AssetBalanceInfo],
     }
 )
+
+
+# ApplicationParams = TypedDict(
+#     'ApplicationParams',
+#     {
+#         'id':
+#     }
+# )

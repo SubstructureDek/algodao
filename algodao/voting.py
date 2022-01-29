@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Tuple, Optional
 
 import pyteal
 import algosdk.account
+import algosdk.logic
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
@@ -114,7 +115,7 @@ class TokenDistributionTree:
         approval_program, clear_program = self.compile(algod)
         local_ints = 0
         local_bytes = 0
-        global_ints = 2
+        global_ints = 3
         global_bytes = 1
         global_schema = transaction.StateSchema(global_ints, global_bytes)
         local_schema = transaction.StateSchema(local_ints, local_bytes)
@@ -138,6 +139,24 @@ class TokenDistributionTree:
         self._appid = app_id
         return app_id
 
+    def inittoken(self, algod: AlgodClient, addr: str, privkey: str):
+        args: List[bytes] = [
+            b'inittoken'
+        ]
+        params = algod.suggested_params()
+        txn = transaction.ApplicationNoOpTxn(
+            addr,
+            params,
+            self._appid,
+            args,
+        )
+        signed = txn.sign(privkey)
+        txid = algod.send_transaction(signed)
+        algodao.helpers.wait_for_confirmation(algod, txid)
+        info = algod.pending_transaction_info(txid)
+        self._token = ElectionToken(info['inner-txns'][0]['asset-index'])
+        return self._token.asset_id
+
     def callapp(self, algod: AlgodClient, addr: str, privkey: str):
         assert addr in self._addr2count
         index = list(self._addr2count.keys()).index(addr)
@@ -154,7 +173,13 @@ class TokenDistributionTree:
             proof_bytes
         ]
         params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(addr, params, self._appid, args)
+        txn = transaction.ApplicationNoOpTxn(
+            addr,
+            params,
+            self._appid,
+            args,
+            foreign_assets=[self._token.asset_id]
+        )
         signed = txn.sign(privkey)
         txid = algod.send_transaction(signed)
         algodao.helpers.wait_for_confirmation(algod, txid)
@@ -185,9 +210,25 @@ class TokenDistributionTree:
             App.globalPut(Bytes("RootHash"), Txn.application_args[0]),
             App.globalPut(Bytes("RegBegin"), Btoi(Txn.application_args[1])),
             App.globalPut(Bytes("RegEnd"), Btoi(Txn.application_args[2])),
+            App.globalPut(Bytes("AssetId"), Int(0)),
             Return(Int(1)),
         ])
         is_creator = Txn.sender() == Global.creator_address()
+        on_inittoken = Seq([
+            # Assert(is_creator),
+            InnerTxnBuilder.Begin(),
+            InnerTxnBuilder.SetFields({
+                TxnField.type_enum: TxnType.AssetConfig,
+                TxnField.config_asset_total: Int(10000),
+                TxnField.config_asset_unit_name: Bytes('VOTE'),
+                TxnField.config_asset_name: Bytes("Vote"),
+                TxnField.config_asset_url: Bytes("https://localhost"),
+                TxnField.config_asset_manager: Global.current_application_address(),
+            }),
+            InnerTxnBuilder.Submit(),
+            App.globalPut(Bytes("AssetId"), InnerTxn.created_asset_id()),
+            Return(Int(1)),
+        ])
         on_closeout = Return(Int(1))
         on_register = Return(
             And(
@@ -211,6 +252,7 @@ class TokenDistributionTree:
             ),
             hash.store(Sha256(Concat(address, Bytes(':'), count))),
             self.verifymerkle(index, proof, hash, roothash),
+            self.transferelectiontokens(Btoi(count)),
             Return(Int(1)),
         ])
         program = Cond(
@@ -220,6 +262,7 @@ class TokenDistributionTree:
             [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
             [Txn.on_completion() == OnComplete.OptIn, on_register],
             [Txn.application_args[0] == Bytes("claim"), on_claim],
+            [Txn.application_args[0] == Bytes('inittoken'), on_inittoken],
         )
         return program
 
@@ -252,6 +295,29 @@ class TokenDistributionTree:
             Assert(hash.load() == roothash)
         ])
 
+    def transferelectiontokens(self, count):
+        return Seq([
+            InnerTxnBuilder.Begin(),
+            InnerTxnBuilder.SetFields({
+                TxnField.type_enum: TxnType.AssetTransfer,
+                TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),  #Int(self._token.asset_id),
+                TxnField.asset_receiver: Txn.sender(),
+                TxnField.asset_amount: count,
+            }),
+            InnerTxnBuilder.Submit(),
+        ])
+
+    def xferelectiontoken(self, algod: AlgodClient, amount: int, sendaddr: str, sendprivkey: str):
+        appaddr = algosdk.logic.get_application_address(self._appid)
+        algodao.helpers.optinasset(algod, appaddr, sendprivkey, self._token.asset_id)
+        algodao.helpers.transferasset(
+            algod,
+            sendaddr,
+            sendprivkey,
+            appaddr,
+            self._token.asset_id,
+            amount
+        )
 
 
 class Election:

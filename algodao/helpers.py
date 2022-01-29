@@ -138,3 +138,21 @@ def writedryrun(algod, signed, fname):
     drr = transaction.create_dryrun(algod, [signed])
     with open(fname, 'wb') as fp:
         fp.write(base64.b64decode(algosdk.encoding.msgpack_encode(drr)))
+
+
+def transferasset(algod, sendaddr, sendprivkey, recvaddr, assetid, amount):
+    params = algod.suggested_params()
+    txn = algosdk.future.transaction.AssetTransferTxn(
+        sendaddr,
+        params,
+        recvaddr,
+        amount,
+        assetid
+    )
+    signed = txn.sign(sendprivkey)
+    txid = algod.send_transaction(signed)
+    wait_for_confirmation(algod, txid)
+
+
+def optinasset(algod, recvaddr, recvprivkey, assetid):
+    transferasset(algod, recvaddr, recvprivkey, recvaddr, assetid, 0)
