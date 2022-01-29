@@ -4,7 +4,7 @@ import pyteal
 from pyteal import *
 
 
-class ProposalContract:
+class Proposal:
     def __init__(
             self,
             name: str,
@@ -36,6 +36,18 @@ class ProposalContract:
             App.localPut(Txn.sender(), Bytes("Voted" + str(option)), votes)
         ])
 
+
+class ElectionToken:
+    def __init__(self, asset_id):
+        self._asset_id = asset_id
+
+
+class Election:
+    def __init__(self, vote_token: ElectionToken):
+        self._vote_token = vote_token
+
+    def buildmerkle(self):
+        pass
 
 def approval_program():
     on_creation = Seq(
