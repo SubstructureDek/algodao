@@ -157,6 +157,22 @@ class TokenDistributionTree:
         self._token = ElectionToken(info['inner-txns'][0]['asset-index'])
         return self._token.asset_id
 
+    def optintoken(self, algod: AlgodClient, addr: str, privkey: str):
+        args: List[bytes] = [
+            b'optintoken'
+        ]
+        params = algod.suggested_params()
+        txn = transaction.ApplicationNoOpTxn(
+            addr,
+            params,
+            self._appid,
+            args,
+            foreign_assets=[self._token.asset_id]
+        )
+        signed = txn.sign(privkey)
+        txid = algod.send_transaction(signed)
+        algodao.helpers.wait_for_confirmation(algod, txid)
+
     def callapp(self, algod: AlgodClient, addr: str, privkey: str):
         assert addr in self._addr2count
         index = list(self._addr2count.keys()).index(addr)
@@ -214,6 +230,19 @@ class TokenDistributionTree:
             Return(Int(1)),
         ])
         is_creator = Txn.sender() == Global.creator_address()
+        on_optintoken = Seq([
+            Assert(is_creator),
+            InnerTxnBuilder.Begin(),
+            InnerTxnBuilder.SetFields({
+                TxnField.type_enum: TxnType.AssetTransfer,
+                TxnField.asset_receiver: Global.current_application_address(),
+                TxnField.xfer_asset: Int(self._token.asset_id),
+                TxnField.asset_amount: Int(0),
+            }),
+            InnerTxnBuilder.Submit(),
+            App.globalPut(Bytes("AssetId"), Int(self._token.asset_id)),
+            Return(Int(1)),
+        ])
         on_inittoken = Seq([
             # Assert(is_creator),
             InnerTxnBuilder.Begin(),
@@ -263,6 +292,7 @@ class TokenDistributionTree:
             [Txn.on_completion() == OnComplete.OptIn, on_register],
             [Txn.application_args[0] == Bytes("claim"), on_claim],
             [Txn.application_args[0] == Bytes('inittoken'), on_inittoken],
+            [Txn.application_args[0] == Bytes('optintoken'), on_optintoken],
         )
         return program
 
