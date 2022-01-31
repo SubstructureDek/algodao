@@ -5,7 +5,7 @@ import base64
 import hashlib
 import logging
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import pyteal
 import algosdk.logic
@@ -14,7 +14,7 @@ from algosdk.v2client.algod import AlgodClient
 from pyteal import App, Seq, Bytes, Btoi, Txn, Int, Assert, Return, AssetHolding
 from pyteal import Cond, Global, Mode, InnerTxnBuilder, TxnField, TxnType
 from pyteal import InnerTxn, And, ScratchVar, TealType, Sha256, Concat
-from pyteal import OnComplete, Len, For, If, Substring
+from pyteal import OnComplete, Len, For, If, Substring, Expr
 
 import algodao.deploy
 from algodao.helpers import wait_for_confirmation
@@ -33,8 +33,8 @@ class Token(abc.ABC):
 
 
 class ElectionToken(Token):
-    def __init__(self, asset_id):
-        self._asset_id = asset_id
+    def __init__(self, asset_id: int):
+        self._asset_id: int = asset_id
 
     @property
     def asset_id(self) -> int:
@@ -42,8 +42,8 @@ class ElectionToken(Token):
 
 
 class GovernanceToken(Token):
-    def __init__(self, asset_id):
-        self._asset_id = asset_id
+    def __init__(self, asset_id: int):
+        self._asset_id: int = asset_id
 
     @property
     def asset_id(self) -> int:
@@ -70,8 +70,8 @@ class TokenDistributionTree:
             for address, count in self._addr2count.items()
         ]
         self._tree = MerkleTree(inputs)
-        self._beginreg = beginreg
-        self._endreg = endreg
+        self._beginreg: int = beginreg
+        self._endreg: int = endreg
         self._appid: Optional[int] = None
 
     def createcontract(
@@ -162,7 +162,7 @@ class TokenDistributionTree:
         txid = algod.send_transaction(signed)
         algodao.helpers.wait_for_confirmation(algod, txid)
 
-    def createappargs(self):
+    def createappargs(self) -> List[Union[bytes, int]]:
         return [
             self._tree.roothash,
             self._beginreg,
@@ -178,7 +178,7 @@ class TokenDistributionTree:
         clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
         return approval_compiled, clear_compiled
 
-    def claimtokenscontract(self):
+    def claimtokenscontract(self) -> Expr:
         # creation arguments: RootHash, RegBegin, RegEnd
         # Claim arguments: address, vote count, Merkle index, Merkle proof
         on_creation = Seq([
@@ -285,7 +285,7 @@ class TokenDistributionTree:
             Assert(hash.load() == roothash)
         ])
 
-    def transferelectiontokens(self, count):
+    def transferelectiontokens(self, count) -> Expr:
         return Seq([
             InnerTxnBuilder.Begin(),
             InnerTxnBuilder.SetFields({
@@ -311,7 +311,7 @@ class TokenDistributionTree:
 
 
 class NftCheckProgram:
-    def approval_program(self):
+    def approval_program(self) -> Expr:
         on_creation = Seq(
             [
                 Assert(Txn.application_args.length() == Int(1)),

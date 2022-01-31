@@ -3,6 +3,7 @@ import os
 import pathlib
 import pty
 import subprocess
+from typing import Tuple
 
 import algosdk.account
 import algosdk.future.transaction
@@ -12,7 +13,7 @@ from algosdk.v2client.algod import AlgodClient
 import algodao.helpers
 
 
-def _cli_passphrase_for_account(address):
+def _cli_passphrase_for_account(address: str) -> str:
     """Return passphrase for provided address."""
     process = call_sandbox_command("goal", "account", "export", "-a", address)
 
@@ -31,11 +32,12 @@ def _cli_passphrase_for_account(address):
     return passphrase
 
 
-def _privkey_for_account(addr):
-    return algosdk.mnemonic.to_private_key(_cli_passphrase_for_account(addr))
+def _privkey_for_account(addr: str) -> str:
+    privkey: str = algosdk.mnemonic.to_private_key(_cli_passphrase_for_account(addr))
+    return privkey
 
 
-def call_sandbox_command(*args):
+def call_sandbox_command(*args: str) -> subprocess.CompletedProcess:
     """Call and return sandbox command composed from provided arguments."""
     return subprocess.run(
         [_sandbox_executable(), *args],
@@ -44,12 +46,12 @@ def call_sandbox_command(*args):
     )
 
 
-def _sandbox_executable():
+def _sandbox_executable() -> str:
     """Return full path to Algorand's sandbox executable."""
     return _sandbox_directory() + "/sandbox"
 
 
-def _sandbox_directory():
+def _sandbox_directory() -> str:
     """Return full path to Algorand's sandbox executable.
 
     The location of sandbox directory is retrieved either from the SANDBOX_DIR
@@ -61,7 +63,7 @@ def _sandbox_directory():
     )
 
 
-def _initial_funds_address():
+def _initial_funds_address() -> str:
     """Get the address of initially created account having enough funds.
 
     Such an account is used to transfer initial funds for the accounts
@@ -75,11 +77,11 @@ def _initial_funds_address():
             if account.get("created-at-round") == 0
             and account.get("status") == "Offline"  # "Online" for devMode
         ),
-        None,
+        "",
     )
 
 
-def add_standalone_account():
+def add_standalone_account() -> Tuple[str, str]:
     """Create standalone account"""
     private_key, address = algosdk.account.generate_account()
     return private_key, address
@@ -89,7 +91,7 @@ def fund_account(
         client: AlgodClient,
         address: str,
         initial_funds: int
-):
+) -> None:
     """Fund provided `address` with `initial_funds` amount of microAlgos."""
     initial_funds_address = _initial_funds_address()
     if initial_funds_address is None:

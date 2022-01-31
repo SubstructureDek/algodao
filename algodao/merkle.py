@@ -7,16 +7,16 @@ from typing import Dict, List, Optional
 
 class Node:
     @classmethod
-    def from_nodes(cls, left: Node, right: Node):
+    def from_nodes(cls, left: Node, right: Node) -> Node:
         value: bytes = cls.hash(left.value + right.value)
         return Node(left, right, value)
 
     @classmethod
-    def from_value(cls, value: bytes):
+    def from_value(cls, value: bytes) -> Node:
         return Node(None, None, cls.hash(value))
 
     @classmethod
-    def hash(cls, value: bytes):
+    def hash(cls, value: bytes) -> bytes:
         return hashlib.sha256(value).digest()
 
     def __init__(self, left: Optional[Node], right: Optional[Node], value: bytes):
@@ -29,11 +29,11 @@ class Node:
         return self._value
 
     @property
-    def left(self) -> Node:
+    def left(self) -> Optional[Node]:
         return self._left
 
     @property
-    def right(self) -> Node:
+    def right(self) -> Optional[Node]:
         return self._right
 
 
@@ -66,7 +66,7 @@ class MerkleTree:
         return Node.from_nodes(left, right)
 
     def _createlevels(self) -> Dict[int, List[Node]]:
-        levels = dict()
+        levels: Dict[int, List[Node]] = dict()
         self._appendtolevel(levels, self._root, 0)
         return levels
 
@@ -81,6 +81,7 @@ class MerkleTree:
         existing: List[Node] = levels.setdefault(depth, [])
         existing.append(node)
         if node.left is not None:
+            assert node.right is not None
             cls._appendtolevel(levels, node.left, depth+1)
             cls._appendtolevel(levels, node.right, depth+1)
 

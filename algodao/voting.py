@@ -2,18 +2,20 @@
 # audited for security.
 import logging
 from collections import OrderedDict
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Union
 
 import algosdk.account
 import algosdk.logic
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
-from pyteal import *
+from pyteal import Int, Expr, Return, Bytes, App, Assert, InnerTxnBuilder
+from pyteal import Txn, Btoi, Global, Seq, And, TxnField, Concat, TxnType
+from pyteal import Gtxn, Cond, OnComplete
 
 import algodao.deploy
 import algodao.helpers
-from algodao.types import AssetBalances, PendingTransactionInfo
+from algodao.types import AssetBalances
 from algodao.assets import ElectionToken, GovernanceToken, TokenDistributionTree
 
 log = logging.getLogger(__name__)
@@ -39,7 +41,7 @@ class Proposal:
         self._num_options: int = num_options
         self._appid: Optional[int] = None
 
-    def approval_program(self):
+    def approval_program(self) -> Expr:
         expected_args = 4
         on_creation = Seq([
             Assert(Txn.application_args.length() == Int(expected_args)),
@@ -119,10 +121,10 @@ class Proposal:
         txid = algod.send_transaction(signed)
         algodao.helpers.wait_for_confirmation(algod, txid)
 
-    def clear_program(self):
+    def clear_program(self) -> Expr:
         return Return(Int(1))
 
-    def createappargs(self):
+    def createappargs(self) -> List[Union[int, bytes]]:
         return [
             algodao.helpers.int2bytes(self._regbegin),
             algodao.helpers.int2bytes(self._regend),
@@ -131,8 +133,8 @@ class Proposal:
         ]
 
     def deploycontract(self, algod: AlgodClient, senderaddr: str, privkey: str) -> int:
-        approval_compiled = algodao.helpers.compileprogram(algod, self.approval_program())
-        clear_compiled = algodao.helpers.compileprogram(algod, self.clear_program())
+        approval_compiled = algodao.deploy.compile_program(algod, self.approval_program())
+        clear_compiled = algodao.deploy.compile_program(algod, self.clear_program())
         local_ints = self._num_options
         local_bytes = 0
         global_ints = 4 + self._num_options

@@ -7,12 +7,13 @@ from algosdk.future import transaction
 from algosdk import account, mnemonic
 
 import algodao.helpers
+from algodao.types import PendingTransactionInfo
 
 log = logging.getLogger(__name__)
 
 
 # helper function to compile program source
-def compile_program(client, source_code):
+def compile_program(client, source_code) -> bytes:
     log.info("Compiling program")
     compile_response = client.compile(source_code)
     log.info(f"Compiler response: {compile_response}")
@@ -60,7 +61,7 @@ def create_app(
     tx_id = signed_txn.transaction.get_txid()
     client.send_transactions([signed_txn])
     algodao.helpers.wait_for_confirmation(client, tx_id)
-    response = client.pending_transaction_info(tx_id)
+    response: PendingTransactionInfo = client.pending_transaction_info(tx_id)
     app_id = response["application-index"]
     log.info(f"Created new app-id {app_id}: {response}")
     return app_id

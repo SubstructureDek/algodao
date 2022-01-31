@@ -120,7 +120,7 @@ def add_transaction(
     return transaction_id
 
 
-def int2bytes(num: int):
+def int2bytes(num: int) -> bytes:
     return num.to_bytes(8, "big")
 
 
@@ -142,7 +142,14 @@ def writedryrun(algod, signed, fname):
         fp.write(base64.b64decode(algosdk.encoding.msgpack_encode(drr)))
 
 
-def transferasset(algod, sendaddr, sendprivkey, recvaddr, assetid, amount):
+def transferasset(
+        algod: AlgodClient,
+        sendaddr: str,
+        sendprivkey: str,
+        recvaddr: str,
+        assetid: int,
+        amount: int
+):
     params = algod.suggested_params()
     txn = algosdk.future.transaction.AssetTransferTxn(
         sendaddr,
@@ -156,12 +163,11 @@ def transferasset(algod, sendaddr, sendprivkey, recvaddr, assetid, amount):
     wait_for_confirmation(algod, txid)
 
 
-def optinasset(algod, recvaddr, recvprivkey, assetid):
+def optinasset(
+        algod: AlgodClient,
+        recvaddr: str,
+        recvprivkey: str,
+        assetid: int
+):
     transferasset(algod, recvaddr, recvprivkey, recvaddr, assetid, 0)
 
-
-def compileprogram(algod: AlgodClient, program_ast):
-    program_teal = pyteal.compileTeal(program_ast, Mode.Application, version=5)
-    program_response = algod.compile(program_teal)
-    program_compiled = base64.b64decode(program_response['result'])
-    return program_compiled
