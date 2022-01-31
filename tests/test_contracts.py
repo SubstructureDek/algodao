@@ -1,4 +1,5 @@
 import logging
+import traceback
 from collections import OrderedDict
 
 import algosdk.error
@@ -163,3 +164,36 @@ def test_nftcontract():
     with pytest.raises(algosdk.error.AlgodHTTPError):
         txid = client.send_transaction(signed)
         algodao.helpers.wait_for_confirmation(client, txid)
+
+
+def test_proposal():
+    amount = 1000000
+    algod = algodao.helpers.createclient()
+    creatorprivkey, creatoraddr = tests.helpers.add_standalone_account()
+    tests.helpers.fund_account(algod, creatoraddr, amount)
+    token = algodao.voting.ElectionToken(_createnft(algod, creatoraddr, creatorprivkey))
+    userprivkey, useraddr = tests.helpers.add_standalone_account()
+    tests.helpers.fund_account(algod, useraddr, amount)
+    status = algod.status()
+    regbegin = status['last-round']
+    regend = regbegin + 1000
+    votebegin = regbegin
+    voteend = regend
+    num_options = 3
+    proposal = algodao.voting.Proposal(
+        "Test Proposal",
+        token,
+        regbegin,
+        regend,
+        votebegin,
+        voteend,
+        num_options
+    )
+    appid = proposal.deploycontract(algod, creatoraddr, creatorprivkey)
+    appaddr = algosdk.logic.get_application_address(appid)
+    tests.helpers.fund_account(algod, appaddr, amount)
+    proposal.optintoken(algod, creatoraddr, creatorprivkey)
+    algodao.helpers.optinasset(algod, useraddr, userprivkey, token.asset_id)
+    algodao.helpers.transferasset(algod, creatoraddr, creatorprivkey, useraddr, token.asset_id, 10)
+    algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
+    proposal.sendvote(algod, userprivkey, useraddr, 2, 10)

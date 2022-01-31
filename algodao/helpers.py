@@ -3,9 +3,11 @@ import logging
 import os
 
 import algosdk
+import pyteal
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
+from pyteal import Mode
 
 log = logging.getLogger(__name__)
 
@@ -156,3 +158,10 @@ def transferasset(algod, sendaddr, sendprivkey, recvaddr, assetid, amount):
 
 def optinasset(algod, recvaddr, recvprivkey, assetid):
     transferasset(algod, recvaddr, recvprivkey, recvaddr, assetid, 0)
+
+
+def compileprogram(algod: AlgodClient, program_ast):
+    program_teal = pyteal.compileTeal(program_ast, Mode.Application, version=5)
+    program_response = algod.compile(program_teal)
+    program_compiled = base64.b64decode(program_response['result'])
+    return program_compiled
