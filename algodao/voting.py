@@ -11,6 +11,7 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import *
 
+import algodao.deploy
 import algodao.helpers
 from algodao.types import AssetBalances, PendingTransactionInfo
 from algodao.assets import ElectionToken, GovernanceToken, TokenDistributionTree
@@ -129,9 +130,7 @@ class Proposal:
             algodao.helpers.int2bytes(self._end_vote),
         ]
 
-    def deploycontract(self, algod: AlgodClient, senderaddr: str, privkey: str):
-        on_complete = transaction.OnComplete.NoOpOC
-        params = algod.suggested_params()
+    def deploycontract(self, algod: AlgodClient, senderaddr: str, privkey: str) -> int:
         approval_compiled = algodao.helpers.compileprogram(algod, self.approval_program())
         clear_compiled = algodao.helpers.compileprogram(algod, self.clear_program())
         local_ints = self._num_options
@@ -141,24 +140,16 @@ class Proposal:
         global_schema = transaction.StateSchema(global_ints, global_bytes)
         local_schema = transaction.StateSchema(local_ints, local_bytes)
         app_args = self.createappargs()
-        txn = transaction.ApplicationCreateTxn(
-            senderaddr,
-            params,
-            on_complete,
+        self._appid = algodao.deploy.create_app(
+            algod,
+            privkey,
             approval_compiled,
             clear_compiled,
             global_schema,
             local_schema,
             app_args,
         )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
-        response: PendingTransactionInfo = algod.pending_transaction_info(txid)
-        app_id: int = response['application-index']
-        log.info(f'Created new app-id: {app_id}')
-        self._appid = app_id
-        return app_id
+        return self._appid
 
     def sendvote(self, algod: AlgodClient, privkey: str, addr: str, option: int, amount: int):
         args: List[bytes] = [

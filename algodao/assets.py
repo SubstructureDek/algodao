@@ -90,24 +90,16 @@ class TokenDistributionTree:
         global_schema = transaction.StateSchema(global_ints, global_bytes)
         local_schema = transaction.StateSchema(local_ints, local_bytes)
         app_args = self.createappargs()
-        txn = transaction.ApplicationCreateTxn(
-            senderaddr,
-            params,
-            on_complete,
+        self._appid = algodao.deploy.create_app(
+            algod,
+            privkey,
             approval_program,
             clear_program,
             global_schema,
             local_schema,
-            app_args,
+            app_args
         )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
-        response: PendingTransactionInfo = algod.pending_transaction_info(txid)
-        app_id = response['application-index']
-        log.info(f'Created new app-id: {app_id}')
-        self._appid = app_id
-        return app_id
+        return self._appid
 
     def inittoken(self, algod: AlgodClient, addr: str, privkey: str):
         args: List[bytes] = [
@@ -180,12 +172,10 @@ class TokenDistributionTree:
     def compile(self, algod: AlgodClient) -> Tuple[bytes, bytes]:
         approval_ast = self.claimtokenscontract()
         approval_teal = pyteal.compileTeal(approval_ast, Mode.Application, version=5)
-        approval_response = algod.compile(approval_teal)
-        approval_compiled = base64.b64decode(approval_response['result'])
+        approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
         clear_ast = Return(Int(1))
         clear_teal = pyteal.compileTeal(clear_ast, Mode.Application, version=5)
-        clear_response = algod.compile(clear_teal)
-        clear_compiled = base64.b64decode(clear_response['result'])
+        clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
         return approval_compiled, clear_compiled
 
     def claimtokenscontract(self):

@@ -1,27 +1,21 @@
 # based off https://github.com/algorand/docs/blob/cdf11d48a4b1168752e6ccaf77c8b9e8e599713a/examples/smart_contracts/v2/python/stateful_smart_contracts.py
-
 import base64
-import os
+import logging
 
-import dotenv
+from algosdk.v2client.algod import AlgodClient
 from algosdk.future import transaction
 from algosdk import account, mnemonic
 
 import algodao.helpers
 
-dotenv.load_dotenv()
+log = logging.getLogger(__name__)
 
-# user declared account mnemonics
-creator_mnemonic = os.getenv("CREATOR_MNEMONIC")
-user_mnemonic = os.getenv("USER_MNEMONIC")
-
-# user declared algod connection parameters. Node must have EnableDeveloperAPI set to true in its config
-algod_address = "http://localhost:4001"
-algod_token = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 # helper function to compile program source
 def compile_program(client, source_code):
+    log.info("Compiling program")
     compile_response = client.compile(source_code)
+    log.info(f"Compiler response: {compile_response}")
     return base64.b64decode(compile_response["result"])
 
 
@@ -40,29 +34,18 @@ def wait_for_round(client, round):
         print(f"Round {last_round}")
 
 
-# create new application
 def create_app(
-    client,
-    private_key,
+    client: AlgodClient,
+    private_key: str,
     approval_program,
     clear_program,
     global_schema,
     local_schema,
     app_args,
-):
-    # define sender as creator
+) -> int:
     sender = account.address_from_private_key(private_key)
-
-    # declare on_complete as NoOp
     on_complete = transaction.OnComplete.NoOpOC.real
-
-    # get node suggested parameters
     params = client.suggested_params()
-    # comment out the next two (2) lines to use suggested fees
-    params.flat_fee = True
-    params.fee = 1000
-
-    # create unsigned transaction
     txn = transaction.ApplicationCreateTxn(
         sender,
         params,
@@ -73,22 +56,13 @@ def create_app(
         local_schema,
         app_args,
     )
-
-    # sign transaction
     signed_txn = txn.sign(private_key)
     tx_id = signed_txn.transaction.get_txid()
-
-    # send transaction
     client.send_transactions([signed_txn])
-
-    # await confirmation
     algodao.helpers.wait_for_confirmation(client, tx_id)
-
-    # display results
-    transaction_response = client.pending_transaction_info(tx_id)
-    app_id = transaction_response["application-index"]
-    print("Created new app-id:", app_id)
-
+    response = client.pending_transaction_info(tx_id)
+    app_id = response["application-index"]
+    log.info(f"Created new app-id {app_id}: {response}")
     return app_id
 
 
