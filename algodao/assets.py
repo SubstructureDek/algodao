@@ -77,11 +77,8 @@ class TokenDistributionTree:
     def createcontract(
             self,
             algod: AlgodClient,
-            senderaddr: str,
             privkey: str,
     ):
-        on_complete: transaction.OnComplete = transaction.OnComplete.NoOpOC
-        params = algod.suggested_params()
         approval_program, clear_program = self.compile(algod)
         local_ints = 0
         local_bytes = 0
@@ -156,17 +153,18 @@ class TokenDistributionTree:
             params,
             self._appid,
             args,
-            foreign_assets=[self._token.asset_id]
+            foreign_assets=[self._token.asset_id],
+
         )
         signed = txn.sign(privkey)
         txid = algod.send_transaction(signed)
         algodao.helpers.wait_for_confirmation(algod, txid)
 
-    def createappargs(self) -> List[Union[bytes, int]]:
+    def createappargs(self) -> List[bytes]:
         return [
             self._tree.roothash,
-            self._beginreg,
-            self._endreg,
+            algodao.helpers.int2bytes(self._beginreg),
+            algodao.helpers.int2bytes(self._endreg),
         ]
 
     def compile(self, algod: AlgodClient) -> Tuple[bytes, bytes]:
@@ -230,7 +228,7 @@ class TokenDistributionTree:
         index = Btoi(Txn.application_args[3])  # uint64
         proof = Txn.application_args[4]  # bytes
         roothash = App.globalGet(Bytes("RootHash"))  # bytes
-        hash = ScratchVar(TealType.bytes)
+        runninghash = ScratchVar(TealType.bytes)
         on_claim = Seq([
             Assert(
                 And(
@@ -239,8 +237,8 @@ class TokenDistributionTree:
                     Global.round() <= App.globalGet(Bytes("RegEnd")),
                 )
             ),
-            hash.store(Sha256(Concat(address, Bytes(':'), count))),
-            self.verifymerkle(index, proof, hash, roothash),
+            runninghash.store(Sha256(Concat(address, Bytes(':'), count))),
+            self.verifymerkle(index, proof, runninghash, roothash),
             self.transferelectiontokens(Btoi(count)),
             Return(Int(1)),
         ])
@@ -256,7 +254,7 @@ class TokenDistributionTree:
         )
         return program
 
-    def verifymerkle(self, index, proof, hash: ScratchVar, roothash):
+    def verifymerkle(self, index, proof, runninghash: ScratchVar, roothash):
         i = ScratchVar(TealType.uint64)
         levelindex = ScratchVar(TealType.uint64)
         return Seq([
@@ -270,19 +268,19 @@ class TokenDistributionTree:
                 Seq([
                     If(
                         levelindex.load() % Int(2) == Int(0),
-                        hash.store(Sha256(Concat(
-                            hash.load(),
+                        runninghash.store(Sha256(Concat(
+                            runninghash.load(),
                             Substring(proof, i.load(), i.load() + Int(32)),
                         ))),
-                        hash.store(Sha256(Concat(
+                        runninghash.store(Sha256(Concat(
                             Substring(proof, i.load(), i.load() + Int(32)),
-                            hash.load()
+                            runninghash.load()
                         )))
                     ),
                     levelindex.store(levelindex.load() / Int(2)),
                 ])
             ),
-            Assert(hash.load() == roothash)
+            Assert(runninghash.load() == roothash)
         ])
 
     def transferelectiontokens(self, count) -> Expr:
@@ -290,7 +288,7 @@ class TokenDistributionTree:
             InnerTxnBuilder.Begin(),
             InnerTxnBuilder.SetFields({
                 TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),  #Int(self._token.asset_id),
+                TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),
                 TxnField.asset_receiver: Txn.sender(),
                 TxnField.asset_amount: count,
             }),
@@ -319,7 +317,6 @@ class NftCheckProgram:
                 Return(Int(1)),
             ]
         )
-        is_creator = Txn.sender() == Global.creator_address()
         assetbalance = AssetHolding.balance(
             Txn.sender(),
             App.globalGet(Bytes("AssetId"))
@@ -459,4 +456,3 @@ def hasasset(client: AlgodClient, addr: str, assetid: int):
         if asset['asset-id'] == assetid:
             return True
     return False
-

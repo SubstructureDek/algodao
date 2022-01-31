@@ -26,12 +26,12 @@ def get_private_key_from_mnemonic(mn):
     return private_key
 
 
-def wait_for_round(client, round):
-    last_round = client.status().get("last-round")
-    print(f"Waiting for round {round}")
-    while last_round < round:
+def wait_for_round(algod: AlgodClient, algoround: int):
+    last_round = algod.status().get("last-round")
+    print(f"Waiting for round {algoround}")
+    while last_round < algoround:
         last_round += 1
-        client.status_after_block(last_round)
+        algod.status_after_block(last_round)
         print(f"Round {last_round}")
 
 
@@ -65,62 +65,6 @@ def create_app(
     app_id = response["application-index"]
     log.info(f"Created new app-id {app_id}: {response}")
     return app_id
-
-
-# opt-in to application
-def opt_in_app(client, private_key, index):
-    # declare sender
-    sender = account.address_from_private_key(private_key)
-    print("OptIn from account: ", sender)
-
-    # get node suggested parameters
-    params = client.suggested_params()
-    # comment out the next two (2) lines to use suggested fees
-    params.flat_fee = True
-    params.fee = 1000
-
-    # create unsigned transaction
-    txn = transaction.ApplicationOptInTxn(sender, params, index)
-
-    # sign transaction
-    signed_txn = txn.sign(private_key)
-    tx_id = signed_txn.transaction.get_txid()
-
-    # send transaction
-    client.send_transactions([signed_txn])
-
-    # await confirmation
-    algodao.helpers.wait_for_confirmation(client, tx_id)
-
-    # display results
-    transaction_response = client.pending_transaction_info(tx_id)
-    print("OptIn to app-id:", transaction_response["txn"]["txn"]["apid"])
-
-
-# call application
-def call_app(client, private_key, index, app_args):
-    # declare sender
-    sender = account.address_from_private_key(private_key)
-    print("Call from account:", sender)
-
-    # get node suggested parameters
-    params = client.suggested_params()
-    # comment out the next two (2) lines to use suggested fees
-    params.flat_fee = True
-    params.fee = 1000
-
-    # create unsigned transaction
-    txn = transaction.ApplicationNoOpTxn(sender, params, index, app_args)
-
-    # sign transaction
-    signed_txn = txn.sign(private_key)
-    tx_id = signed_txn.transaction.get_txid()
-
-    # send transaction
-    client.send_transactions([signed_txn])
-
-    # await confirmation
-    algodao.helpers.wait_for_confirmation(client, tx_id)
 
 
 def format_state(state):

@@ -41,7 +41,7 @@ def test_distributiontree():
         beginreg,
         endreg,
     )
-    appid = tree.createcontract(algod, creatoraddr, creatorprivkey)
+    appid = tree.createcontract(algod, creatorprivkey)
     appaddr = algosdk.logic.get_application_address(appid)
     tests.helpers.fund_account(algod, appaddr, 1000000)
     # tree.xferelectiontoken(algod, 10000, creatoraddr, creatorprivkey)
@@ -187,7 +187,7 @@ def test_proposal():
         voteend,
         num_options
     )
-    appid = proposal.deploycontract(algod, creatoraddr, creatorprivkey)
+    appid = proposal.deploycontract(algod, creatorprivkey)
     appaddr = algosdk.logic.get_application_address(appid)
     tests.helpers.fund_account(algod, appaddr, amount)
     proposal.optintoken(algod, creatoraddr, creatorprivkey)

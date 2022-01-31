@@ -6,12 +6,13 @@ from typing import Callable, Dict, List, Optional, Union
 
 import algosdk.account
 import algosdk.logic
+import pyteal
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import Int, Expr, Return, Bytes, App, Assert, InnerTxnBuilder
 from pyteal import Txn, Btoi, Global, Seq, And, TxnField, Concat, TxnType
-from pyteal import Gtxn, Cond, OnComplete
+from pyteal import Gtxn, Cond, OnComplete, Mode
 
 import algodao.deploy
 import algodao.helpers
@@ -124,7 +125,7 @@ class Proposal:
     def clear_program(self) -> Expr:
         return Return(Int(1))
 
-    def createappargs(self) -> List[Union[int, bytes]]:
+    def createappargs(self) -> List[bytes]:
         return [
             algodao.helpers.int2bytes(self._regbegin),
             algodao.helpers.int2bytes(self._regend),
@@ -132,9 +133,11 @@ class Proposal:
             algodao.helpers.int2bytes(self._end_vote),
         ]
 
-    def deploycontract(self, algod: AlgodClient, senderaddr: str, privkey: str) -> int:
-        approval_compiled = algodao.deploy.compile_program(algod, self.approval_program())
-        clear_compiled = algodao.deploy.compile_program(algod, self.clear_program())
+    def deploycontract(self, algod: AlgodClient, privkey: str) -> int:
+        approval_teal = pyteal.compileTeal(self.approval_program(), Mode.Application, version=5)
+        approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
+        clear_teal = pyteal.compileTeal(self.clear_program(), Mode.Application, version=5)
+        clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
         local_ints = self._num_options
         local_bytes = 0
         global_ints = 4 + self._num_options
@@ -217,4 +220,3 @@ class Election:
             address: str = balance['address']
             balance_dict[address] = amount
         return balance_dict
-
