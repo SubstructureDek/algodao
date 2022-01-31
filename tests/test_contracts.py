@@ -1,5 +1,4 @@
 import logging
-import traceback
 from collections import OrderedDict
 
 import algosdk.error
@@ -36,7 +35,7 @@ def test_distributiontree():
     # make the registration period very long for testing so that we can take
     # a dry-run and debug it for a long period if needed
     endreg = beginreg + 1000
-    tree = algodao.voting.TokenDistributionTree(
+    tree = algodao.assets.TokenDistributionTree(
         token,
         addr2count,
         beginreg,
@@ -49,7 +48,6 @@ def test_distributiontree():
     # algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
     # assetid = tree.inittoken(algod, useraddr, userprivkey)
     tree.optintoken(algod, creatoraddr, creatorprivkey)
-    import ipdb; ipdb.set_trace()
     # algodao.helpers.optinasset(algod, useraddr, userprivkey, assetid)
     tree.callapp(algod, useraddr, userprivkey)
     useraccount = algod.account_info(useraddr)
@@ -103,7 +101,7 @@ def test_nfttransfer():
     txid = client.send_transaction(signed)
     algodao.helpers.wait_for_confirmation(client, txid)
     log.info(client.account_info(recvaddr))
-    assert algodao.assets.hasasset(client, recvaddr, addr, assetid)
+    assert algodao.assets.hasasset(client, recvaddr, assetid)
 
 
 def _createnft(client, addr, privkey) -> int:
