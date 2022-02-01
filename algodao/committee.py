@@ -49,7 +49,7 @@ def set_asset_freeze(address: Expr, frozen: Expr) -> Expr:
     ])
 
 
-# @Subroutine(TealType.none)
+@Subroutine(TealType.none)
 def send_asset(address):
     return Seq([
        InnerTxnBuilder.Begin(),
@@ -62,14 +62,14 @@ def send_asset(address):
        InnerTxnBuilder.Submit(),
     ])
 
-# @Subroutine(TealType.none)
+@Subroutine(TealType.none)
 def add_member(address: Expr) -> Expr:
     return Seq([
         send_asset(address),
         set_asset_freeze(address, Int(1)),
     ])
 
-# @Subroutine(TealType.none)
+@Subroutine(TealType.none)
 def add_members(addresses: Expr) -> Expr:
     index = ScratchVar(TealType.uint64)
     return Seq([

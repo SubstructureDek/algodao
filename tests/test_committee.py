@@ -17,8 +17,6 @@ def test_resign():
     committee = algodao.committee.Committee(
         "My Committee",
         4,
-        1,
-        []
     )
     appid = committee.deploycontract(algod, creatorprivkey)
     appaddr = algosdk.logic.get_application_address(appid)
