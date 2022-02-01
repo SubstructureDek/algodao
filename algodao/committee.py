@@ -11,8 +11,8 @@ import pyteal
 from algosdk.v2client.algod import AlgodClient
 from algosdk.future import transaction
 from pyteal import Expr, Seq, Assert, App, Bytes, Btoi, Return, Int, Txn, And
-from pyteal import Len, Gt, Or, Lt, Subroutine, TealType, For, ScratchVar
-from pyteal import Substring, If, Concat, Cond, OnComplete, Mode, Break
+from pyteal import Len, Subroutine, TealType, For, ScratchVar
+from pyteal import Substring, Concat, Cond, OnComplete, Mode
 from pyteal import InnerTxnBuilder, TxnField, TxnType, Global, InnerTxn
 from pyteal import AssetHolding, Gtxn
 
@@ -93,14 +93,9 @@ class Committee:
             self,
             name: str,
             maxsize: int,
-            minsize: int,
-            members: List[bytes],
     ):
         self._name = name
         self._maxsize = maxsize
-        self._minsize = minsize
-        # assert len(members) >= minsize
-        self._members = members
 
     def approval_program(self) -> Expr:
         on_creation = Seq([

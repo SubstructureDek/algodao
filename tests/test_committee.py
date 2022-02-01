@@ -27,7 +27,6 @@ def test_resign():
     for member, pk in zip(initialmembers, pks):
         tests.helpers.fund_account(algod, member)
         algodao.helpers.optinasset(algod, member, pk, assetid)
-    import ipdb; ipdb.set_trace()
     committee.call_setmembers(algod, creatorprivkey, creatoraddr, initialmembers)
     committee.call_checkmembership(algod, pk3, member3)
     committee.call_resign(algod, pk3, member3)
