@@ -3,7 +3,7 @@ import os
 import pathlib
 import pty
 import subprocess
-from typing import Tuple
+from typing import Optional, Tuple
 
 import algosdk.account
 import algosdk.future.transaction
@@ -90,9 +90,11 @@ def add_standalone_account() -> Tuple[str, str]:
 def fund_account(
         client: AlgodClient,
         address: str,
-        initial_funds: int
+        initial_funds: Optional[int] = None
 ) -> None:
     """Fund provided `address` with `initial_funds` amount of microAlgos."""
+    if initial_funds is None:
+        initial_funds = 1000000
     initial_funds_address = _initial_funds_address()
     if initial_funds_address is None:
         raise Exception("Initial funds weren't transferred!")
@@ -106,4 +108,11 @@ def fund_account(
     )
 
 
+def create_funded(
+        client: AlgodClient,
+        initial_funds: Optional[int] = None
+) -> Tuple[str, str]:
+    privkey, addr = add_standalone_account()
+    fund_account(client, addr, initial_funds)
+    return privkey, addr
 

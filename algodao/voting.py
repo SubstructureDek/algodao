@@ -2,7 +2,7 @@
 # audited for security.
 import logging
 from collections import OrderedDict
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional
 
 import algosdk.account
 import algosdk.logic
@@ -82,6 +82,7 @@ class Proposal:
                 Global.group_size() == Int(2),
                 Txn.group_index() == Int(0),
                 Gtxn[1].xfer_asset() == Int(self._token.asset_id),
+                Gtxn[1].asset_receiver() == Global.current_application_address(),
             )),
             App.localPut(
                 Txn.sender(),
