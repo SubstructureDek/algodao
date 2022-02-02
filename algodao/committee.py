@@ -133,14 +133,14 @@ class Committee:
             # is yet on the committee
             # TODO: allow addition and removal of committee members according
             # TODO: to DAO charter (e.g., vote)
-            # Assert(Global.creator_address() == Txn.sender()),
+            Assert(Global.creator_address() == Txn.sender()),
             assetbalance,
-            # Assert(
-            #     And(
-            #         assetbalance.hasValue(),
-            #         assetbalance.value() == App.globalGet(Bytes("MaxMembers"))
-            #     )
-            # ),
+            Assert(
+                And(
+                    assetbalance.hasValue(),
+                    assetbalance.value() == App.globalGet(Bytes("MaxMembers"))
+                )
+            ),
             add_members(Txn.application_args[1]),
             Return(Int(1)),
         ])
