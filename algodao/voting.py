@@ -134,17 +134,23 @@ class Proposal:
             algodao.helpers.int2bytes(self._end_vote),
         ]
 
+    def globalschema(self):
+        global_ints = 4 + self._num_options
+        global_bytes = 0
+        return transaction.StateSchema(global_ints, global_bytes)
+
+    def localschema(self):
+        local_ints = self._num_options
+        local_bytes = 0
+        return transaction.StateSchema(local_ints, local_bytes)
+
     def deploycontract(self, algod: AlgodClient, privkey: str) -> int:
         approval_teal = pyteal.compileTeal(self.approval_program(), Mode.Application, version=5)
         approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
         clear_teal = pyteal.compileTeal(self.clear_program(), Mode.Application, version=5)
         clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
-        local_ints = self._num_options
-        local_bytes = 0
-        global_ints = 4 + self._num_options
-        global_bytes = 0
-        global_schema = transaction.StateSchema(global_ints, global_bytes)
-        local_schema = transaction.StateSchema(local_ints, local_bytes)
+        global_schema = self.globalschema()
+        local_schema = self.localschema()
         app_args = self.createappargs()
         self._appid = algodao.deploy.create_app(
             algod,
