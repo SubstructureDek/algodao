@@ -6,6 +6,18 @@
 #
 cffi==1.15.0
     # via pynacl
+click==8.0.3
+    # via flask
+flask==2.0.2
+    # via -r requirements.in
+gunicorn==20.1.0
+    # via -r requirements.in
+itsdangerous==2.0.1
+    # via flask
+jinja2==3.0.3
+    # via flask
+markupsafe==2.0.1
+    # via jinja2
 msgpack==1.0.3
     # via py-algorand-sdk
 py-algorand-sdk==1.9.0
@@ -22,3 +34,8 @@ pyteal==0.9.1
     # via -r requirements.in
 python-dotenv==0.19.2
     # via -r requirements.in
+werkzeug==2.0.2
+    # via flask
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools

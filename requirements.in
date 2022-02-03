@@ -1,3 +1,5 @@
+flask
+gunicorn
 pyteal
 py-algorand-sdk
 python-dotenv
