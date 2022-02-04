@@ -195,3 +195,42 @@ def test_proposal():
     algodao.helpers.transferasset(algod, creatoraddr, creatorprivkey, useraddr, token.asset_id, 10)
     algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
     proposal.sendvote(algod, userprivkey, useraddr, 2, 10)
+
+# from pyteal import *
+# from algosdk.future.transaction import StateSchema
+# def test_largecontract():
+#     algod = algodao.helpers.createclient()
+#     privkey, addr = tests.helpers.create_funded(algod, 100000000)
+#     index = ScratchVar(TealType.uint64)
+#     approval_program = Cond([
+#         Txn.application_id() == Int(0),
+#         Seq([
+#             For(
+#                 index.store(Int(0)),
+#                 index.load() < Int(1000),
+#                 index.store(index.load() + Int(1))
+#             ).Do(
+#                 App.globalPut(Concat(Bytes("Var"), Itob(index.load())), index.load())
+#             ),
+#             Return(Int(1)),
+#         ])
+#     ])
+#     approval_compiled = algodao.deploy.compile_program(
+#         algod,
+#         compileTeal(approval_program, mode=Mode.Application, version=5)
+#     )
+#     clear_compiled = algodao.deploy.compile_program(
+#         algod,
+#         compileTeal(Return(Int(1)), mode=Mode.Application, version=5)
+#     )
+#     local_schema = StateSchema(0, 0)
+#     global_schema = StateSchema(1000, 0)
+#     algodao.deploy.create_app(
+#         algod,
+#         privkey,
+#         approval_compiled,
+#         clear_compiled,
+#         global_schema,
+#         local_schema,
+#         []
+#     )
