@@ -24,8 +24,8 @@ log = logging.getLogger(__name__)
 
 
 @Subroutine(TealType.uint64)
-def is_member(address: Expr) -> Expr:
-    assetbalance = AssetHolding.balance(address, App.globalGet(Bytes("AssetId")))
+def is_member(asset_id: Expr, address: Expr) -> Expr:
+    assetbalance = AssetHolding.balance(address, asset_id)
     return Seq([
         assetbalance,
         Return(And(
@@ -35,28 +35,37 @@ def is_member(address: Expr) -> Expr:
     ])
 
 
+@Subroutine(TealType.uint64)
+def current_committee_size_ex(app_id: Expr, app_addr: Expr):
+    assetid = App.globalGetEx(app_id, Bytes("AssetId"))
+    return Return(
+        App.globalGetEx(app_id, Bytes("MaxMembers"))
+        - AssetHolding.balance(app_addr, assetid)
+    )
+
+
 @Subroutine(TealType.none)
-def set_asset_freeze(address: Expr, frozen: Expr) -> Expr:
+def set_asset_freeze(address: Expr, assetid: Expr, frozen: Expr) -> Expr:
     return Seq([
         InnerTxnBuilder.Begin(),
         InnerTxnBuilder.SetFields({
             TxnField.type_enum: TxnType.AssetFreeze,
             TxnField.freeze_asset_account: address,
             TxnField.freeze_asset_frozen: frozen,
-            TxnField.freeze_asset: App.globalGet(Bytes("AssetId")),
+            TxnField.freeze_asset: assetid,
         }),
         InnerTxnBuilder.Submit(),
     ])
 
 
 @Subroutine(TealType.none)
-def send_asset(address):
+def send_asset(address: Expr, assetid: Expr):
     return Seq([
        InnerTxnBuilder.Begin(),
        InnerTxnBuilder.SetFields({
            TxnField.type_enum: TxnType.AssetTransfer,
            TxnField.asset_receiver: address,
-           TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),
+           TxnField.xfer_asset: assetid,
            TxnField.asset_amount: Int(1),
        }),
        InnerTxnBuilder.Submit(),
@@ -65,8 +74,8 @@ def send_asset(address):
 @Subroutine(TealType.none)
 def add_member(address: Expr) -> Expr:
     return Seq([
-        send_asset(address),
-        set_asset_freeze(address, Int(1)),
+        send_asset(address, App.globalGet(Bytes("AssetId"))),
+        set_asset_freeze(address, App.globalGet(Bytes("AssetId")), Int(1)),
     ])
 
 @Subroutine(TealType.none)
@@ -152,10 +161,10 @@ class Committee:
                 Gtxn[1].asset_amount() == Int(1),
                 Gtxn[1].asset_receiver() == Global.current_application_address(),
             )),
-            set_asset_freeze(Txn.sender(), Int(0)),
+            set_asset_freeze(Txn.sender(), App.globalGet(Bytes("AssetId")), Int(0)),
             Return(Int(1))
         ])
-        on_checkmembership = Return(is_member(Txn.sender()))
+        on_checkmembership = Return(is_member(App.globalGet(Bytes("AssetId"), Txn.sender())))
         return Cond(
             [Txn.application_id() == Int(0), on_creation],
             [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],

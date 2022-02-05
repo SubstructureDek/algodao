@@ -12,7 +12,7 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import Int, Expr, Return, Bytes, App, Assert, InnerTxnBuilder
 from pyteal import Txn, Btoi, Global, Seq, And, TxnField, Concat, TxnType
-from pyteal import Gtxn, Cond, OnComplete, Mode
+from pyteal import Gtxn, Cond, OnComplete, Mode, Subroutine
 
 import algodao.deploy
 import algodao.helpers
@@ -21,6 +21,9 @@ from algodao.assets import ElectionToken, GovernanceToken, TokenDistributionTree
 
 log = logging.getLogger(__name__)
 
+
+# @Subroutine
+# def meets_criteria(yesvotes: Expr, novotes: Expr, quorum_req: Expr, approval_mech: Expr, )
 
 class Proposal:
     def __init__(
@@ -227,3 +230,6 @@ class Election:
             address: str = balance['address']
             balance_dict[address] = amount
         return balance_dict
+
+
+
