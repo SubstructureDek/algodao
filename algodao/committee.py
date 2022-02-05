@@ -20,7 +20,7 @@ from pyteal import AssetHolding, Gtxn
 
 import algodao.deploy
 import algodao.helpers
-from algodao.contract import ContractVariables
+from algodao.contract import GlobalVariables, CreateContract, DeployedContract
 
 log = logging.getLogger(__name__)
 
@@ -107,212 +107,206 @@ def add_members(addresses: Expr) -> Expr:
 
 
 class Committee:
-    class GlobalInts(ContractVariables):
+    class GlobalInts(GlobalVariables):
         AssetId = enum.auto()
+        MaxMembers = enum.auto()
 
-    def __init__(
-            self,
-            name: str,
-            maxsize: int,
-    ):
-        self._name = name
-        self._maxsize = maxsize
+    class GlobalBytes(GlobalVariables):
+        CommitteeName = enum.auto()
 
-    def approval_program(self) -> Expr:
-        on_creation = Seq([
-            Assert(Txn.application_args.length() == Int(2)),
-            App.globalPut(Bytes("CommitteeName"), Txn.application_args[0]),
-            App.globalPut(Bytes("MaxMembers"), Btoi(Txn.application_args[1])),
-            Return(Int(1)),
-        ])
-        on_register = Return(Int(1))
-        on_inittoken = Seq([
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetConfig,
-                TxnField.config_asset_total: App.globalGet(Bytes("MaxMembers")),
-                TxnField.config_asset_unit_name: Bytes("CMT"),
-                TxnField.config_asset_name: Concat(
-                    App.globalGet(Bytes("CommitteeName")),
-                    Bytes(" Membership")
+    class CreateCommittee(CreateContract):
+        def __init__(
+                self,
+                name: str,
+                maxsize: int,
+        ):
+            self._name: str = name
+            self._maxsize: int = maxsize
+
+        def approval_program(self) -> Expr:
+            GlobalInts = Committee.GlobalInts
+            GlobalBytes = Committee.GlobalBytes
+            on_creation = Seq([
+                Assert(Txn.application_args.length() == Int(2)),
+                GlobalBytes.CommitteeName.put(Txn.application_args[0]),
+                GlobalInts.MaxMembers.put(Btoi(Txn.application_args[1])),
+                GlobalInts.AssetId.put(Int(0)),
+                Return(Int(1)),
+            ])
+            on_register = Return(Int(1))
+            on_inittoken = Seq([
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetConfig,
+                    TxnField.config_asset_total: GlobalInts.MaxMembers.get(),
+                    TxnField.config_asset_unit_name: Bytes("CMT"),
+                    TxnField.config_asset_name: Concat(
+                        GlobalBytes.CommitteeName.get(),
+                        Bytes(" Membership")
+                    ),
+                    TxnField.config_asset_url: Txn.application_args[1],
+                    TxnField.config_asset_freeze: Global.current_application_address(),
+                    TxnField.config_asset_clawback: Global.current_application_address(),
+                    TxnField.config_asset_manager: Global.current_application_address(),
+                }),
+                InnerTxnBuilder.Submit(),
+                GlobalInts.AssetId.put(InnerTxn.created_asset_id()),
+                Return(Int(1)),
+            ])
+            on_optintoken = Seq([
+                Assert(Txn.sender() == Global.creator_address()),
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetTransfer,
+                    TxnField.asset_receiver: Global.current_application_address(),
+                    TxnField.xfer_asset: Btoi(Txn.application_args[1]),
+                    TxnField.asset_amount: Int(0),
+                }),
+                Return(Int(1)),
+            ])
+            assetbalance = AssetHolding.balance(
+                Global.current_application_address(),
+                GlobalInts.AssetId.get(),
+            )
+            on_setmembers = Seq([
+                # only allow arbitrary selection of members by creator when no one
+                # is yet on the committee
+                # TODO: allow addition and removal of committee members according
+                # TODO: to DAO charter (e.g., vote)
+                Assert(Global.creator_address() == Txn.sender()),
+                assetbalance,
+                Assert(
+                    And(
+                        assetbalance.hasValue(),
+                        assetbalance.value() == GlobalInts.MaxMembers.get()
+                    )
                 ),
-                TxnField.config_asset_url: Txn.application_args[1],
-                TxnField.config_asset_freeze: Global.current_application_address(),
-                TxnField.config_asset_clawback: Global.current_application_address(),
-                TxnField.config_asset_manager: Global.current_application_address(),
-            }),
-            InnerTxnBuilder.Submit(),
-            App.globalPut(Bytes("AssetId"), InnerTxn.created_asset_id()),
-            Return(Int(1)),
-        ])
-        on_optintoken = Seq([
-            Assert(Txn.sender() == Global.creator_address()),
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.asset_receiver: Global.current_application_address(),
-                TxnField.xfer_asset: Btoi(Txn.application_args[1]),
-                TxnField.asset_amount: Int(0),
-            }),
-            Return(Int(1)),
-        ])
-        assetbalance = AssetHolding.balance(
-            Global.current_application_address(),
-            App.globalGet(Bytes("AssetId"))
-        )
-        on_setmembers = Seq([
-            # only allow arbitrary selection of members by creator when no one
-            # is yet on the committee
-            # TODO: allow addition and removal of committee members according
-            # TODO: to DAO charter (e.g., vote)
-            Assert(Global.creator_address() == Txn.sender()),
-            assetbalance,
-            Assert(
-                And(
-                    assetbalance.hasValue(),
-                    assetbalance.value() == App.globalGet(Bytes("MaxMembers"))
-                )
-            ),
-            add_members(Txn.application_args[1]),
-            Return(Int(1)),
-        ])
-        on_resign = Seq([
-            Assert(And(
-                Global.group_size() == Int(2),
-                Txn.group_index() == Int(0),
-                Gtxn[1].xfer_asset() == App.globalGet(Bytes("AssetId")),
-                Gtxn[1].asset_amount() == Int(1),
-                Gtxn[1].asset_receiver() == Global.current_application_address(),
-            )),
-            set_asset_freeze(Txn.sender(), App.globalGet(Bytes("AssetId")), Int(0)),
-            Return(Int(1))
-        ])
-        on_checkmembership = Return(is_member(App.globalGet(Bytes("AssetId")), Txn.sender()))
-        return Cond(
-            [Txn.application_id() == Int(0), on_creation],
-            [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],
-            [Txn.on_completion() == OnComplete.UpdateApplication, Return(Int(0))],
-            [Txn.on_completion() == OnComplete.CloseOut, Return(Int(1))],
-            [Txn.on_completion() == OnComplete.OptIn, on_register],
-            [Txn.application_args[0] == Bytes("resign"), on_resign],
-            [Txn.application_args[0] == Bytes("checkmembership"), on_checkmembership],
-            [Txn.application_args[0] == Bytes("inittoken"), on_inittoken],
-            [Txn.application_args[0] == Bytes("setmembers"), on_setmembers],
-            [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
-        )
+                add_members(Txn.application_args[1]),
+                Return(Int(1)),
+            ])
+            on_resign = Seq([
+                Assert(And(
+                    Global.group_size() == Int(2),
+                    Txn.group_index() == Int(0),
+                    Gtxn[1].xfer_asset() == GlobalInts.AssetId.get(),
+                    Gtxn[1].asset_amount() == Int(1),
+                    Gtxn[1].asset_receiver() == Global.current_application_address(),
+                )),
+                set_asset_freeze(Txn.sender(), GlobalInts.AssetId.get(), Int(0)),
+                Return(Int(1))
+            ])
+            on_checkmembership = Return(is_member(GlobalInts.AssetId.get(), Txn.sender()))
+            return Cond(
+                [Txn.application_id() == Int(0), on_creation],
+                [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],
+                [Txn.on_completion() == OnComplete.UpdateApplication, Return(Int(0))],
+                [Txn.on_completion() == OnComplete.CloseOut, Return(Int(1))],
+                [Txn.on_completion() == OnComplete.OptIn, on_register],
+                [Txn.application_args[0] == Bytes("resign"), on_resign],
+                [Txn.application_args[0] == Bytes("checkmembership"), on_checkmembership],
+                [Txn.application_args[0] == Bytes("inittoken"), on_inittoken],
+                [Txn.application_args[0] == Bytes("setmembers"), on_setmembers],
+                [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
+            )
 
+        def global_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(len(Committee.GlobalInts), len(Committee.GlobalBytes))
 
-    def deploycontract(self, algod: AlgodClient, privkey: str):
-        approval_teal = pyteal.compileTeal(self.approval_program(), Mode.Application, version=5)
-        approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
-        clear_teal = pyteal.compileTeal(Return(Int(1)), Mode.Application, version=5)
-        clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
-        local_ints = 0
-        local_bytes = 0
-        global_ints = 2
-        global_bytes = 2
-        global_schema = transaction.StateSchema(global_ints, global_bytes)
-        local_schema = transaction.StateSchema(local_ints, local_bytes)
-        app_args = [
-            self._name,
-            algodao.helpers.int2bytes(self._maxsize),
-        ]
-        self._appid = algodao.deploy.create_app(
-            algod,
-            privkey,
-            approval_compiled,
-            clear_compiled,
-            global_schema,
-            local_schema,
-            app_args,
-        )
-        return self._appid
+        def local_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(0, 0)
 
-    def call_resign(self, algod: AlgodClient, privkey: str, addr: str):
-        params = algod.suggested_params()
-        appaddr = algosdk.logic.get_application_address(self._appid)
-        txn1 = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            [b'resign'],
-            foreign_assets=[self._assetid],
-        )
-        txn2 = transaction.AssetTransferTxn(
-            addr,
-            params,
-            appaddr,
-            1,
-            self._assetid
-        )
-        groupid = transaction.calculate_group_id([txn1, txn2])
-        txn1.group = groupid
-        txn2.group = groupid
-        signed1 = txn1.sign(privkey)
-        signed2 = txn2.sign(privkey)
-        txid = algod.send_transactions([signed1, signed2])
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def createapp_args(self) -> List[bytes]:
+            return [
+                self._name.encode(),
+                algodao.helpers.int2bytes(self._maxsize),
+            ]
 
-    def call_checkmembership(self, algod: AlgodClient, privkey: str, addr: str):
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            [b'checkmembership'],
-            foreign_assets=[self._assetid],
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def clear_program(self) -> Expr:
+            return Return(Int(1))
 
-    def call_optintoken(self, algod: AlgodClient, privkey: str, addr: str, assetid: int):
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            [b'optintoken', algodao.helpers.int2bytes(assetid)],
-            foreign_assets=[assetid],
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+    class DeployedCommittee(DeployedContract):
+        def __init__(self, appid):
+            super(Committee.DeployedCommittee, self).__init__(appid)
 
-    def call_setmembers(self, algod: AlgodClient, privkey: str, addr: str, addresses: List[str]):
-        addresses_bytes = b''.join(
-            algosdk.encoding.decode_address(member)
-            for member in addresses
-        )
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            [b'setmembers', addresses_bytes],
-            foreign_assets=[self._assetid],
-            accounts=addresses,
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def call_resign(self, algod: AlgodClient, privkey: str, addr: str):
+            params = algod.suggested_params()
+            appaddr = algosdk.logic.get_application_address(self._appid)
+            txn1 = transaction.ApplicationNoOpTxn(
+                addr,
+                params,
+                self._appid,
+                [b'resign'],
+                foreign_assets=[self._assetid],
+            )
+            txn2 = transaction.AssetTransferTxn(
+                addr,
+                params,
+                appaddr,
+                1,
+                self._assetid
+            )
+            groupid = transaction.calculate_group_id([txn1, txn2])
+            txn1.group = groupid
+            txn2.group = groupid
+            signed1 = txn1.sign(privkey)
+            signed2 = txn2.sign(privkey)
+            txid = algod.send_transactions([signed1, signed2])
+            algodao.helpers.wait_for_confirmation(algod, txid)
 
-    def call_inittoken(self, algod: AlgodClient, privkey: str, addr: str):
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            [b'inittoken', b'http://localhost/my/committee/token']
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
-        info = algod.pending_transaction_info(txid)
-        self._assetid = info['inner-txns'][0]['asset-index']
-        log.info(f"Created asset ID for committee: {self._assetid}")
-        return self._assetid
+        def call_checkmembership(self, algod: AlgodClient, privkey: str, addr: str):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'checkmembership',
+                [],
+                foreign_assets=[self.assetid],
+            )
 
-    @property
-    def assetid(self):
-        return self._assetid
+        def call_optintoken(self, algod: AlgodClient, privkey: str, addr: str, assetid: int):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'optintoken',
+                [
+                    algodao.helpers.int2bytes(assetid),
+                ],
+                foreign_assets=[assetid],
+            )
+
+        def call_setmembers(self, algod: AlgodClient, privkey: str, addr: str, addresses: List[str]):
+            addresses_bytes = b''.join(
+                algosdk.encoding.decode_address(member)
+                for member in addresses
+            )
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'setmembers',
+                [addresses_bytes],
+                accounts=addresses,
+                foreign_assets=[self.assetid],
+            )
+
+        def call_inittoken(self, algod: AlgodClient, privkey: str, addr: str):
+            info = self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'inittoken',
+                [b'http://localhost/my/committee/token'],
+            )
+            self._assetid = info['inner-txns'][0]['asset-index']
+            log.info(f"Created asset ID for committee: {self._assetid}")
+            return self._assetid
+
+        @property
+        def assetid(self):
+            return self._assetid
+
+    @classmethod
+    def deploy(cls, algod, createcommittee: CreateCommittee, privkey):
+        appid = createcommittee.deploy(algod, privkey)
+        return Committee.DeployedCommittee(appid)
