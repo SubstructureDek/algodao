@@ -1,5 +1,6 @@
 import abc
 import binascii
+import enum
 import json
 import base64
 import hashlib
@@ -17,6 +18,7 @@ from pyteal import InnerTxn, And, ScratchVar, TealType, Sha256, Concat
 from pyteal import OnComplete, Len, For, If, Substring, Expr
 
 import algodao.deploy
+from algodao.contract import CreateContract, DeployedContract, GlobalVariables, LocalVariables
 from algodao.helpers import wait_for_confirmation
 from algodao.merkle import MerkleTree
 from algodao.types import PendingTransactionInfo, AccountInfo
@@ -51,261 +53,248 @@ class GovernanceToken(Token):
 
 
 class TokenDistributionTree:
-    def __init__(
-            self,
-            token: Token,
-            addr2count: OrderedDict[str, int],
-            beginreg: int,
-            endreg: int,
-    ):
-        self._token = token
-        self._addr2count = addr2count
-        # note that for simplicity in the teal contract, the count here is
-        # represented in its uint64 bytes representation rather than a human
-        # readable representation; e.g., if address 'abcd' is assigned a
-        # count of 8, the leaf value that is hashed is:
-        # b'abcd:\x00\x00\x00\x00\x00\x00\x00\x10'
-        inputs: List[bytes] = [
-            f'{address}:'.encode('utf-8') + algodao.helpers.int2bytes(count)
-            for address, count in self._addr2count.items()
-        ]
-        self._tree = MerkleTree(inputs)
-        self._beginreg: int = beginreg
-        self._endreg: int = endreg
-        self._appid: Optional[int] = None
+    class GlobalInts(GlobalVariables):
+        RegBegin = enum.auto()
+        RegEnd = enum.auto()
+        AssetId = enum.auto()
 
-    def createcontract(
-            self,
-            algod: AlgodClient,
-            privkey: str,
-    ):
-        approval_program, clear_program = self.compile(algod)
-        local_ints = 0
-        local_bytes = 0
-        global_ints = 3
-        global_bytes = 1
-        global_schema = transaction.StateSchema(global_ints, global_bytes)
-        local_schema = transaction.StateSchema(local_ints, local_bytes)
-        app_args = self.createappargs()
-        self._appid = algodao.deploy.create_app(
-            algod,
-            privkey,
-            approval_program,
-            clear_program,
-            global_schema,
-            local_schema,
-            app_args
-        )
-        return self._appid
+    class GlobalBytes(GlobalVariables):
+        RootHash = enum.auto()
 
-    def inittoken(self, algod: AlgodClient, addr: str, privkey: str):
-        args: List[bytes] = [
-            b'inittoken'
-        ]
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            args,
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
-        info = algod.pending_transaction_info(txid)
-        self._token = ElectionToken(info['inner-txns'][0]['asset-index'])
-        return self._token.asset_id
+    class CreateTree(CreateContract):
+        def __init__(
+                self,
+                token: Token,
+                addr2count: OrderedDict[str, int],
+                beginreg: int,
+                endreg: int,
+        ):
+            self._token = token
+            self._addr2count = addr2count
+            # note that for simplicity in the teal contract, the count here is
+            # represented in its uint64 bytes representation rather than a human
+            # readable representation; e.g., if address 'abcd' is assigned a
+            # count of 8, the leaf value that is hashed is:
+            # b'abcd:\x00\x00\x00\x00\x00\x00\x00\x10'
+            inputs: List[bytes] = [
+                f'{address}:'.encode('utf-8') + algodao.helpers.int2bytes(count)
+                for address, count in self._addr2count.items()
+            ]
+            self._tree = MerkleTree(inputs)
+            self._beginreg: int = beginreg
+            self._endreg: int = endreg
+            super(TokenDistributionTree.CreateTree, self).__init__()
 
-    def optintoken(self, algod: AlgodClient, addr: str, privkey: str):
-        args: List[bytes] = [
-            b'optintoken'
-        ]
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            args,
-            foreign_assets=[self._token.asset_id]
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def local_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(0, 0)
 
-    def callapp(self, algod: AlgodClient, addr: str, privkey: str):
-        assert addr in self._addr2count
-        index = list(self._addr2count.keys()).index(addr)
-        proof: List[bytes] = self._tree.createproof(index)
-        count: int = self._addr2count[addr]
-        # concatenate all the proof hashes together. the contract will index
-        # into the byte array as appropriate while stepping through the proof
-        proof_bytes: bytes = b''.join(proof)
-        args: List[bytes] = [
-            b'claim',
-            addr.encode('utf-8'),
-            algodao.helpers.int2bytes(count),
-            algodao.helpers.int2bytes(index),
-            proof_bytes
-        ]
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            args,
-            foreign_assets=[self._token.asset_id],
-
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
-
-    def createappargs(self) -> List[bytes]:
-        return [
-            self._tree.roothash,
-            algodao.helpers.int2bytes(self._beginreg),
-            algodao.helpers.int2bytes(self._endreg),
-        ]
-
-    def compile(self, algod: AlgodClient) -> Tuple[bytes, bytes]:
-        approval_ast = self.claimtokenscontract()
-        approval_teal = pyteal.compileTeal(approval_ast, Mode.Application, version=5)
-        approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
-        clear_ast = Return(Int(1))
-        clear_teal = pyteal.compileTeal(clear_ast, Mode.Application, version=5)
-        clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
-        return approval_compiled, clear_compiled
-
-    def claimtokenscontract(self) -> Expr:
-        # creation arguments: RootHash, RegBegin, RegEnd
-        # Claim arguments: address, vote count, Merkle index, Merkle proof
-        on_creation = Seq([
-            Assert(Txn.application_args.length() == Int(3)),
-            App.globalPut(Bytes("RootHash"), Txn.application_args[0]),
-            App.globalPut(Bytes("RegBegin"), Btoi(Txn.application_args[1])),
-            App.globalPut(Bytes("RegEnd"), Btoi(Txn.application_args[2])),
-            App.globalPut(Bytes("AssetId"), Int(0)),
-            Return(Int(1)),
-        ])
-        is_creator = Txn.sender() == Global.creator_address()
-        on_optintoken = Seq([
-            Assert(is_creator),
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.asset_receiver: Global.current_application_address(),
-                TxnField.xfer_asset: Int(self._token.asset_id),
-                TxnField.asset_amount: Int(0),
-            }),
-            InnerTxnBuilder.Submit(),
-            App.globalPut(Bytes("AssetId"), Int(self._token.asset_id)),
-            Return(Int(1)),
-        ])
-        on_inittoken = Seq([
-            # Assert(is_creator),
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetConfig,
-                TxnField.config_asset_total: Int(10000),
-                TxnField.config_asset_unit_name: Bytes('VOTE'),
-                TxnField.config_asset_name: Bytes("Vote"),
-                TxnField.config_asset_url: Bytes("https://localhost"),
-                TxnField.config_asset_manager: Global.current_application_address(),
-            }),
-            InnerTxnBuilder.Submit(),
-            App.globalPut(Bytes("AssetId"), InnerTxn.created_asset_id()),
-            Return(Int(1)),
-        ])
-        on_closeout = Return(Int(1))
-        on_register = Return(
-            And(
-                Global.round() >= App.globalGet(Bytes("RegBegin")),
-                Global.round() <= App.globalGet(Bytes("RegEnd")),
+        def global_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(
+                len(TokenDistributionTree.GlobalInts),
+                len(TokenDistributionTree.GlobalBytes)
             )
-        )
-        address = Txn.application_args[1]  # bytes
-        count = Txn.application_args[2]  # bytes representation of a uint64
-        index = Btoi(Txn.application_args[3])  # uint64
-        proof = Txn.application_args[4]  # bytes
-        roothash = App.globalGet(Bytes("RootHash"))  # bytes
-        runninghash = ScratchVar(TealType.bytes)
-        on_claim = Seq([
-            Assert(
+
+        def createapp_args(self) -> List[bytes]:
+            return [
+                self._tree.roothash,
+                algodao.helpers.int2bytes(self._beginreg),
+                algodao.helpers.int2bytes(self._endreg),
+            ]
+
+        def approval_program(self) -> Expr:
+            # creation arguments: RootHash, RegBegin, RegEnd
+            # Claim arguments: address, vote count, Merkle index, Merkle proof
+            GlobalInts = TokenDistributionTree.GlobalInts
+            GlobalBytes = TokenDistributionTree.GlobalBytes
+            on_creation = Seq([
+                Assert(Txn.application_args.length() == Int(3)),
+                GlobalBytes.RootHash.put(Txn.application_args[0]),
+                GlobalInts.RegBegin.put(Btoi(Txn.application_args[1])),
+                GlobalInts.RegEnd.put(Btoi(Txn.application_args[2])),
+                GlobalInts.AssetId.put(Int(0)),
+                Return(Int(1)),
+            ])
+            is_creator = Txn.sender() == Global.creator_address()
+            on_optintoken = Seq([
+                Assert(is_creator),
+                Assert(Txn.application_args.length() == Int(2)),
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetTransfer,
+                    TxnField.asset_receiver: Global.current_application_address(),
+                    TxnField.xfer_asset: Btoi(Txn.application_args[1]),
+                    TxnField.asset_amount: Int(0),
+                }),
+                InnerTxnBuilder.Submit(),
+                GlobalInts.AssetId.put(Int(self._token.asset_id)),
+                Return(Int(1)),
+            ])
+            on_inittoken = Seq([
+                Assert(is_creator),
+                Assert(Txn.application_args.length() == Int(5)),
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetConfig,
+                    TxnField.config_asset_total: Btoi(Txn.application_args[1]),
+                    TxnField.config_asset_unit_name: Txn.application_args[2],
+                    TxnField.config_asset_name: Txn.application_args[3],
+                    TxnField.config_asset_url: Txn.application_args[4],
+                    TxnField.config_asset_manager: Global.current_application_address(),
+                }),
+                InnerTxnBuilder.Submit(),
+                GlobalInts.AssetId.put(InnerTxn.created_asset_id()),
+                Return(Int(1)),
+            ])
+            on_closeout = Return(Int(1))
+            on_register = Return(
                 And(
-                    Txn.application_args.length() == Int(5),
                     Global.round() >= App.globalGet(Bytes("RegBegin")),
                     Global.round() <= App.globalGet(Bytes("RegEnd")),
                 )
-            ),
-            runninghash.store(Sha256(Concat(address, Bytes(':'), count))),
-            self.verifymerkle(index, proof, runninghash, roothash),
-            self.transferelectiontokens(Btoi(count)),
-            Return(Int(1)),
-        ])
-        program = Cond(
-            [Txn.application_id() == Int(0), on_creation],
-            [Txn.on_completion() == OnComplete.DeleteApplication, Return(is_creator)],
-            [Txn.on_completion() == OnComplete.UpdateApplication, Return(is_creator)],
-            [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
-            [Txn.on_completion() == OnComplete.OptIn, on_register],
-            [Txn.application_args[0] == Bytes("claim"), on_claim],
-            [Txn.application_args[0] == Bytes('inittoken'), on_inittoken],
-            [Txn.application_args[0] == Bytes('optintoken'), on_optintoken],
-        )
-        return program
+            )
+            address = Txn.application_args[1]  # bytes
+            count = Txn.application_args[2]  # bytes representation of a uint64
+            index = Btoi(Txn.application_args[3])  # uint64
+            proof = Txn.application_args[4]  # bytes
+            runninghash = ScratchVar(TealType.bytes)
+            on_claim = Seq([
+                Assert(
+                    And(
+                        Txn.application_args.length() == Int(5),
+                        Global.round() >= App.globalGet(Bytes("RegBegin")),
+                        Global.round() <= App.globalGet(Bytes("RegEnd")),
+                    )
+                ),
+                runninghash.store(Sha256(Concat(address, Bytes(':'), count))),
+                self.verifymerkle(index, proof, runninghash, GlobalBytes.RootHash.get()),
+                self.transferelectiontokens(Btoi(count)),
+                Return(Int(1)),
+            ])
+            program = Cond(
+                [Txn.application_id() == Int(0), on_creation],
+                [Txn.on_completion() == OnComplete.DeleteApplication, Return(is_creator)],
+                [Txn.on_completion() == OnComplete.UpdateApplication, Return(is_creator)],
+                [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
+                [Txn.on_completion() == OnComplete.OptIn, on_register],
+                [Txn.application_args[0] == Bytes("claim"), on_claim],
+                [Txn.application_args[0] == Bytes('inittoken'), on_inittoken],
+                [Txn.application_args[0] == Bytes('optintoken'), on_optintoken],
+            )
+            return program
 
-    def verifymerkle(self, index, proof, runninghash: ScratchVar, roothash):
-        i = ScratchVar(TealType.uint64)
-        levelindex = ScratchVar(TealType.uint64)
-        return Seq([
-            Assert(Len(proof) % Int(32) == Int(0)),
-            levelindex.store(index),
-            For(
-                i.store(Int(0)),
-                i.load() < Len(proof),
-                i.store(i.load() + Int(32))
-            ).Do(
-                Seq([
-                    If(
-                        levelindex.load() % Int(2) == Int(0),
-                        runninghash.store(Sha256(Concat(
-                            runninghash.load(),
-                            Substring(proof, i.load(), i.load() + Int(32)),
-                        ))),
-                        runninghash.store(Sha256(Concat(
-                            Substring(proof, i.load(), i.load() + Int(32)),
-                            runninghash.load()
-                        )))
-                    ),
-                    levelindex.store(levelindex.load() / Int(2)),
-                ])
-            ),
-            Assert(runninghash.load() == roothash)
-        ])
+        def clear_program(self) -> Expr:
+            return Return(Int(1))
 
-    def transferelectiontokens(self, count) -> Expr:
-        return Seq([
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),
-                TxnField.asset_receiver: Txn.sender(),
-                TxnField.asset_amount: count,
-            }),
-            InnerTxnBuilder.Submit(),
-        ])
+        def verifymerkle(self, index: Expr, proof: Expr, runninghash: ScratchVar, roothash: Expr):
+            i = ScratchVar(TealType.uint64)
+            levelindex = ScratchVar(TealType.uint64)
+            return Seq([
+                Assert(Len(proof) % Int(32) == Int(0)),
+                levelindex.store(index),
+                For(
+                    i.store(Int(0)),
+                    i.load() < Len(proof),
+                    i.store(i.load() + Int(32))
+                ).Do(
+                    Seq([
+                        If(
+                            levelindex.load() % Int(2) == Int(0),
+                            runninghash.store(Sha256(Concat(
+                                runninghash.load(),
+                                Substring(proof, i.load(), i.load() + Int(32)),
+                            ))),
+                            runninghash.store(Sha256(Concat(
+                                Substring(proof, i.load(), i.load() + Int(32)),
+                                runninghash.load()
+                            )))
+                        ),
+                        levelindex.store(levelindex.load() / Int(2)),
+                    ])
+                ),
+                Assert(runninghash.load() == roothash)
+            ])
 
-    def xferelectiontoken(self, algod: AlgodClient, amount: int, sendaddr: str, sendprivkey: str):
-        appaddr = algosdk.logic.get_application_address(self._appid)
-        algodao.helpers.optinasset(algod, appaddr, sendprivkey, self._token.asset_id)
-        algodao.helpers.transferasset(
-            algod,
-            sendaddr,
-            sendprivkey,
-            appaddr,
-            self._token.asset_id,
-            amount
-        )
+        def transferelectiontokens(self, count) -> Expr:
+            return Seq([
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetTransfer,
+                    TxnField.xfer_asset: App.globalGet(Bytes("AssetId")),
+                    TxnField.asset_receiver: Txn.sender(),
+                    TxnField.asset_amount: count,
+                }),
+                InnerTxnBuilder.Submit(),
+            ])
+
+    class DeployedTree(DeployedContract):
+        def __init__(self, appid: int, addr2count: OrderedDict[str, int], tree: MerkleTree):
+            self._addr2count = addr2count
+            self._tree = tree
+            super(TokenDistributionTree.DeployedTree, self).__init__(appid)
+
+        def call_inittoken(
+                self,
+                algod: AlgodClient,
+                addr: str,
+                privkey: str,
+                assetcount: int,
+                unitname: str,
+                assetname: str,
+                asseturl: str
+        ) -> int:
+            info = self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'inittoken',
+                [
+                    algodao.helpers.int2bytes(assetcount),
+                    unitname.encode(),
+                    assetname.encode(),
+                    asseturl.encode(),
+                ],
+            )
+            self._token = ElectionToken(info['inner-txns'][0]['asset-index'])
+            return self._token.asset_id
+    
+        def call_optintoken(self, algod: AlgodClient, addr: str, privkey: str) -> dict:
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'optintoken',
+                [
+                    algodao.helpers.int2bytes(self._token.asset_id),
+                ],
+                foreign_assets=[self._token.asset_id]
+            )
+
+        def call_claim(self, algod: AlgodClient, addr: str, privkey: str):
+            assert addr in self._addr2count
+            index = list(self._addr2count.keys()).index(addr)
+            proof: List[bytes] = self._tree.createproof(index)
+            count: int = self._addr2count[addr]
+            # concatenate all the proof hashes together. the contract will index
+            # into the byte array as appropriate while stepping through the proof
+            proof_bytes: bytes = b''.join(proof)
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'claim',
+                [
+                    addr.encode('utf-8'),
+                    algodao.helpers.int2bytes(count),
+                    algodao.helpers.int2bytes(index),
+                    proof_bytes
+                ],
+                foreign_assets=[self._token.asset_id],
+            )
+
+    @classmethod
+    def deploy(cls, algod: AlgodClient, createtree: CreateTree, privkey: str):
+        appid = createtree.deploy(algod, privkey)
+        return TokenDistributionTree.DeployedTree(appid, createtree._addr2count, createtree._tree)
 
 
 class NftCheckProgram:
