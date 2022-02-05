@@ -1,11 +1,17 @@
 import enum
+from typing import List
 
+import algosdk.logic
+from algosdk.v2client.algod import AlgodClient
+from algosdk.future import transaction
 from pyteal import Seq, Assert, App, Return, Int, Btoi, Txn, Expr, Bytes
 from pyteal import Cond, Gtxn, Global, Len, Concat, OnComplete, And, Or, Not
 from pyteal import InnerTxnBuilder, TxnField, TxnType, If, ScratchVar, TealType
-from pyteal import InnerTxn
+from pyteal import InnerTxn, OnComplete
 
+import algodao.helpers
 from algodao.committee import is_member, current_committee_size_ex, set_asset_freeze, send_asset
+from algodao.contract import CreateContract, DeployedContract
 
 
 class AlgoDao:
@@ -79,7 +85,7 @@ class AlgoDao:
         )
 
 
-class StaticPreapprovalGate:
+class CreateStaticPreapprovalGate(CreateContract):
     """
     A statically deployed smart contract (i.e., one that is created when the
     DAO is created and that all subsequent proposals pass through) that allows
@@ -94,8 +100,22 @@ class StaticPreapprovalGate:
     this contract passes along a single Trusted ASA token to indicate to the
     governance contract that it should be followed.
     """
-    def __init__(self):
-        pass
+    def __init__(
+            self,
+            algod: AlgodClient,
+            committee_id: int,
+            minrounds: int,
+    ):
+        self._committee_id: int = committee_id
+        self._committee_addr: str = algosdk.logic.get_application_address(committee_id)
+        self._minrounds: int = minrounds
+
+    def createapp_args(self) -> List[bytes]:
+        return [
+            algodao.helpers.int2bytes(self._committee_id),
+            self._committee_addr,
+            algodao.helpers.int2bytes(self._minrounds),
+        ]
 
     def approval_program(self):
         on_creation = Seq([
@@ -118,7 +138,7 @@ class StaticPreapprovalGate:
             InnerTxnBuilder.Begin(),
             InnerTxnBuilder.SetFields({
                 TxnField.type_enum: TxnType.AssetConfig,
-                TxnField.config_asset_total: Txn.application_args[1],
+                TxnField.config_asset_total: Btoi(Txn.application_args[1]),
                 TxnField.config_asset_unit_name: Txn.application_args[2],
                 TxnField.config_asset_name: Txn.application_args[3],
                 TxnField.config_asset_url: Txn.application_args[4],
@@ -131,6 +151,7 @@ class StaticPreapprovalGate:
             InnerTxnBuilder.Submit(),
             App.globalPut(Bytes("TrustAssetId"), InnerTxn.created_asset_id()),
             App.globalPut(Bytes("Initialized"), Int(1)),
+            Return(Int(1)),
         ])
         assetid = App.globalGetEx(App.globalGet(Bytes("CommitteeId")), Bytes("AssetId"))
         committeesize = current_committee_size_ex(
@@ -159,7 +180,11 @@ class StaticPreapprovalGate:
             Return(Int(1)),
         ])
         on_vote = Seq([
-            Assert(is_member(assetid, Txn.sender())),
+            assetid,
+            Assert(And(
+                assetid.hasValue(),
+                is_member(assetid.value(), Txn.sender()))
+            ),
             # check that the application ID the member is attempting to vote
             # on is in fact the applicatoin ID under consideration
             Assert(App.globalGet(Bytes("ConsideredAppId")) == Btoi(Txn.application_args[1])),
@@ -186,7 +211,7 @@ class StaticPreapprovalGate:
             # vote and execute on the result
             If(
                 # TODO: allow approval method other than majority vote
-                App.globalGet(Bytes("YesVotes")) > committeesize / 2,
+                App.globalGet(Bytes("YesVotes")) > committeesize / Int(2),
                 Seq([
                     set_asset_freeze(
                         Global.current_application_address(),
@@ -203,13 +228,117 @@ class StaticPreapprovalGate:
                 ])
             ),
             If(
-                App.globalGet(Bytes("NoVotes")) > committeesize / 2,
+                App.globalGet(Bytes("NoVotes")) > committeesize / Int(2),
                 Seq([
                     App.globalPut(Bytes("VoteInProgress"), Int(0)),
                 ])
             ),
             Return(Int(1)),
         ])
+        on_closeout = self.clear_program()
+        return Cond(
+            [Txn.application_id() == Int(0), on_creation],
+            [Txn.on_completion() == OnComplete.UpdateApplication, Return(Int(0))],
+            [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],
+            [Txn.on_completion() == OnComplete.OptIn, Return(Int(1))],
+            [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
+            [Txn.application_args[0] == Bytes('inittoken'), on_inittoken],
+            [Txn.application_args[0] == Bytes('assessproposal'), on_assessproposal],
+            [Txn.application_args[0] == Bytes('vote'), on_vote],
+        )
+
+    def clear_program(self):
+        return Seq([
+            If(
+                And(
+                    App.globalGet(Bytes("VoteInProgress")),
+                    App.localGet(Txn.sender(), Bytes("VotedAppId")) == App.globalGet(Bytes("ConsideredAppId"))
+                ),
+                If(
+                    App.localGet(Txn.sender(), Bytes("Vote")),
+                    App.globalPut(Bytes("YesVotes"), App.globalGet(Bytes("YesVotes")) - Int(1)),
+                    App.globalPut(Bytes("NoVotes"), App.globalGet(Bytes("NoVotes")) - Int(1))
+                )
+            ),
+            Return(Int(1)),
+        ])
+
+    def local_schema(self) -> transaction.StateSchema:
+        return transaction.StateSchema(
+            2,
+            0
+        )
+
+    def global_schema(self) -> transaction.StateSchema:
+        return transaction.StateSchema(
+            9,
+            2
+        )
+
+class DeployedStaticPreapprovalGate(DeployedContract):
+    def __init__(self, appid: int):
+        super(DeployedStaticPreapprovalGate, self).__init__(appid)
+
+    def call_inittoken(
+            self,
+            algod: AlgodClient,
+            addr: str,
+            privkey: str,
+            asset_total: int,
+            asset_unit_name: str,
+            asset_name: str,
+            asset_url: str
+    ):
+        return self.call_method(
+            algod,
+            addr,
+            privkey,
+            b'inittoken',
+            [
+                algodao.helpers.int2bytes(asset_total),
+                asset_unit_name.encode(),
+                asset_name.encode(),
+                asset_url.encode(),
+            ]
+        )
+
+    def call_assessproposal(
+            self,
+            algod: AlgodClient,
+            addr: str,
+            privkey: str,
+            considered_appid: int
+    ):
+        considered_appaddr = algosdk.logic.get_application_address(considered_appid)
+        return self.call_method(
+            algod,
+            addr,
+            privkey,
+            b'assessproposal',
+            [
+                algodao.helpers.int2bytes(considered_appid),
+                considered_appaddr.encode(),
+            ]
+        )
+
+    def call_vote(
+            self,
+            algod: AlgodClient,
+            addr: str,
+            privkey: str,
+            considered_appid: int,
+            vote: int
+    ):
+        return self.call_method(
+            algod,
+            addr,
+            privkey,
+            b'inittoken',
+            [
+                algodao.helpers.int2bytes(considered_appid),
+                algodao.helpers.int2bytes(vote)
+            ]
+        )
 
 
 class VoteType(enum.Enum):

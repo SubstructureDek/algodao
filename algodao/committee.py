@@ -38,10 +38,17 @@ def is_member(asset_id: Expr, address: Expr) -> Expr:
 @Subroutine(TealType.uint64)
 def current_committee_size_ex(app_id: Expr, app_addr: Expr):
     assetid = App.globalGetEx(app_id, Bytes("AssetId"))
-    return Return(
-        App.globalGetEx(app_id, Bytes("MaxMembers"))
-        - AssetHolding.balance(app_addr, assetid)
-    )
+    maxmembers = App.globalGetEx(app_id, Bytes("MaxMembers"))
+    reservebalance = AssetHolding.balance(app_addr, assetid.value())
+    return Seq([
+        assetid,
+        Assert(assetid.hasValue()),
+        maxmembers,
+        Assert(maxmembers.hasValue()),
+        reservebalance,
+        Assert(reservebalance.hasValue()),
+        Return(maxmembers.value() - reservebalance.value())
+    ])
 
 
 @Subroutine(TealType.none)
@@ -164,7 +171,7 @@ class Committee:
             set_asset_freeze(Txn.sender(), App.globalGet(Bytes("AssetId")), Int(0)),
             Return(Int(1))
         ])
-        on_checkmembership = Return(is_member(App.globalGet(Bytes("AssetId"), Txn.sender())))
+        on_checkmembership = Return(is_member(App.globalGet(Bytes("AssetId")), Txn.sender()))
         return Cond(
             [Txn.application_id() == Int(0), on_creation],
             [Txn.on_completion() == OnComplete.DeleteApplication, Return(Int(0))],
@@ -274,4 +281,8 @@ class Committee:
         info = algod.pending_transaction_info(txid)
         self._assetid = info['inner-txns'][0]['asset-index']
         log.info(f"Created asset ID for committee: {self._assetid}")
+        return self._assetid
+
+    @property
+    def assetid(self):
         return self._assetid
