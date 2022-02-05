@@ -3,7 +3,7 @@ import algosdk.logic
 import algodao.helpers
 import tests.helpers
 from algodao.committee import Committee
-from algodao.governance import CreateStaticPreapprovalGate, DeployedStaticPreapprovalGate
+from algodao.governance import PreapprovalGate
 from algodao.voting import Proposal, ElectionToken
 
 
@@ -17,11 +17,10 @@ def test_approvalgate():
     committee.call_inittoken(algod, creatorprivkey, creatoraddr)
     algodao.helpers.optinasset(algod, creatoraddr, creatorprivkey, committee.assetid)
     committee.call_setmembers(algod, creatorprivkey, creatoraddr, [creatoraddr])
-    creategate = CreateStaticPreapprovalGate(committee_id, 1)
-    appid = creategate.deploy(algod, creatorprivkey)
-    gate = DeployedStaticPreapprovalGate(algod, appid)
+    creategate = PreapprovalGate.CreateGate(committee_id, 1)
+    gate = PreapprovalGate.deploy(algod, creategate, creatorprivkey)
     algodao.helpers.optinapp(algod, creatorprivkey, creatoraddr, gate.appid)
-    gate_addr = algosdk.logic.get_application_address(appid)
+    gate_addr = algosdk.logic.get_application_address(gate.appid)
     tests.helpers.fund_account(algod, gate_addr)
     gate.call_inittoken(
         algod,
@@ -32,8 +31,16 @@ def test_approvalgate():
         "TRUST",
         'http://localhost/abcd'
     )
-    round = algod.status()['last-round']
-    proposal = Proposal("Test Proposal", ElectionToken(10), round, round+1000, round, round+1000, 2)
+    lastround = algod.status()['last-round']
+    proposal = Proposal(
+        "Test Proposal",
+        ElectionToken(10),
+        lastround,
+        lastround+1000,
+        lastround,
+        lastround+1000,
+        2
+    )
     propappid = proposal.deploycontract(algod, creatorprivkey)
     tests.helpers.fund_account(algod, algosdk.logic.get_application_address(propappid))
     proposal.optintoken(algod, creatoraddr, creatorprivkey, gate._trust_asset_id)

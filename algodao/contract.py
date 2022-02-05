@@ -1,14 +1,37 @@
 import abc
+import enum
 from typing import List
 
 import algosdk.error
 import pyteal
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
-from pyteal import Expr, Mode
+from pyteal import App, Expr, Mode, Bytes
 
 import algodao.deploy
 import algodao.helpers
+
+
+class ContractVariables(enum.Enum):
+    @property
+    def bytes(self) -> Bytes:
+        return Bytes(self.name)
+
+
+class GlobalVariables(ContractVariables):
+    def get(self) -> Expr:
+        return App.globalGet(self.bytes)
+
+    def put(self, value: Expr) -> App:
+        return App.globalPut(self.bytes, value)
+
+
+class LocalVariables(ContractVariables):
+    def get(self, account: Expr) -> Expr:
+        return App.localGet(account, self.bytes)
+
+    def put(self, account: Expr, value: Expr) -> App:
+        return App.localPut(account, self.bytes, value)
 
 
 class CreateContract(abc.ABC):

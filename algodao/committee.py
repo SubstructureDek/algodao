@@ -3,6 +3,7 @@ Methods for creating and managing committees in the DAO. Committees are defined
 to have certain privileges, such as the ability to approve proposals and
 distribute treasury funds.
 """
+import enum
 import logging
 from typing import List
 
@@ -19,6 +20,7 @@ from pyteal import AssetHolding, Gtxn
 
 import algodao.deploy
 import algodao.helpers
+from algodao.contract import ContractVariables
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +107,9 @@ def add_members(addresses: Expr) -> Expr:
 
 
 class Committee:
+    class GlobalInts(ContractVariables):
+        AssetId = enum.auto()
+
     def __init__(
             self,
             name: str,
