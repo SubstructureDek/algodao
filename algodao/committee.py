@@ -140,6 +140,17 @@ class Committee:
             App.globalPut(Bytes("AssetId"), InnerTxn.created_asset_id()),
             Return(Int(1)),
         ])
+        on_optintoken = Seq([
+            Assert(Txn.sender() == Global.creator_address()),
+            InnerTxnBuilder.Begin(),
+            InnerTxnBuilder.SetFields({
+                TxnField.type_enum: TxnType.AssetTransfer,
+                TxnField.asset_receiver: Global.current_application_address(),
+                TxnField.xfer_asset: Btoi(Txn.application_args[1]),
+                TxnField.asset_amount: Int(0),
+            }),
+            Return(Int(1)),
+        ])
         assetbalance = AssetHolding.balance(
             Global.current_application_address(),
             App.globalGet(Bytes("AssetId"))
@@ -182,6 +193,7 @@ class Committee:
             [Txn.application_args[0] == Bytes("checkmembership"), on_checkmembership],
             [Txn.application_args[0] == Bytes("inittoken"), on_inittoken],
             [Txn.application_args[0] == Bytes("setmembers"), on_setmembers],
+            [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
         )
 
 
@@ -244,6 +256,19 @@ class Committee:
             self._appid,
             [b'checkmembership'],
             foreign_assets=[self._assetid],
+        )
+        signed = txn.sign(privkey)
+        txid = algod.send_transaction(signed)
+        algodao.helpers.wait_for_confirmation(algod, txid)
+
+    def call_optintoken(self, algod: AlgodClient, privkey: str, addr: str, assetid: int):
+        params = algod.suggested_params()
+        txn = transaction.ApplicationNoOpTxn(
+            addr,
+            params,
+            self._appid,
+            [b'optintoken', algodao.helpers.int2bytes(assetid)],
+            foreign_assets=[assetid],
         )
         signed = txn.sign(privkey)
         txid = algod.send_transaction(signed)

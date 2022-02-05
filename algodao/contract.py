@@ -1,6 +1,7 @@
 import abc
 from typing import List
 
+import algosdk.error
 import pyteal
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
@@ -71,8 +72,9 @@ class DeployedContract(abc.ABC):
             privkey: str,
             method: bytes,
             args: List[bytes],
-            foreign_assets=None,
             accounts=None,
+            foreign_apps=None,
+            foreign_assets=None,
     ):
         params = algod.suggested_params()
         txn = transaction.ApplicationNoOpTxn(
@@ -80,9 +82,15 @@ class DeployedContract(abc.ABC):
             params,
             self._appid,
             [method, *args],
+            accounts=accounts,
+            foreign_apps=foreign_apps,
             foreign_assets=foreign_assets,
-            accounts=accounts
         )
         signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        try:
+            txid = algod.send_transaction(signed)
+            algodao.helpers.wait_for_confirmation(algod, txid)
+        except algosdk.error.AlgodHTTPError as exc:
+            algodao.helpers.writedryrun(algod, signed, 'failed_txn')
+            raise
+        return algod.pending_transaction_info(txid)

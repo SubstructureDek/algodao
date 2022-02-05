@@ -68,7 +68,7 @@ class Proposal:
             InnerTxnBuilder.SetFields({
                 TxnField.type_enum: TxnType.AssetTransfer,
                 TxnField.asset_receiver: Global.current_application_address(),
-                TxnField.xfer_asset: Int(self._token.asset_id),
+                TxnField.xfer_asset: Btoi(Txn.application_args[1]),
                 TxnField.asset_amount: Int(0),
             }),
             InnerTxnBuilder.Submit(),
@@ -110,9 +110,10 @@ class Proposal:
         )
         return program
 
-    def optintoken(self, algod: AlgodClient, addr: str, privkey: str):
+    def optintoken(self, algod: AlgodClient, addr: str, privkey: str, assetid):
         args: List[bytes] = [
-            b'optintoken'
+            b'optintoken',
+            assetid
         ]
         params = algod.suggested_params()
         txn = transaction.ApplicationNoOpTxn(
@@ -120,7 +121,7 @@ class Proposal:
             params,
             self._appid,
             args,
-            foreign_assets=[self._token.asset_id]
+            foreign_assets=[assetid]
         )
         signed = txn.sign(privkey)
         txid = algod.send_transaction(signed)

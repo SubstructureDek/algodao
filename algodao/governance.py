@@ -74,7 +74,7 @@ class AlgoDao:
             ))
         ])
         # TODO: add ability to change governance structure via proposal
-        can_update = Return()
+        can_update = Return(Int(0))
         return Cond(
             [Txn.application_id == Int(0), on_creation],
             [Txn.on_completion() == OnComplete.DeleteApplication, can_delete],
@@ -113,7 +113,7 @@ class CreateStaticPreapprovalGate(CreateContract):
     def createapp_args(self) -> List[bytes]:
         return [
             algodao.helpers.int2bytes(self._committee_id),
-            self._committee_addr,
+            algosdk.encoding.decode_address(self._committee_addr),
             algodao.helpers.int2bytes(self._minrounds),
         ]
 
@@ -143,7 +143,8 @@ class CreateStaticPreapprovalGate(CreateContract):
                 TxnField.config_asset_name: Txn.application_args[3],
                 TxnField.config_asset_url: Txn.application_args[4],
                 TxnField.config_asset_manager: Global.current_application_address(),
-                TxnField.config_asset_default_frozen: Int(1),
+                # TxnField.config_asset_default_frozen: Int(1),
+                TxnField.config_asset_freeze: Global.current_application_address(),
                 TxnField.config_asset_clawback: Global.current_application_address(),
                 TxnField.config_asset_reserve: Global.current_application_address(),
                 TxnField.config_asset_decimals: Int(0),
@@ -167,14 +168,18 @@ class CreateStaticPreapprovalGate(CreateContract):
             # another contract. This prevents a single member from spamming
             # the contract and preventing other contracts from being
             # considered.
-            Assert(is_member(App.globalGet(Bytes("CommitteeAssetId")), Txn.sender())),
+            assetid,
+            Assert(And(
+                assetid.hasValue(),
+                is_member(assetid.value(), Txn.sender())
+            )),
             If(
                 App.globalGet(Bytes("VoteInProgress")),
-                Assert(Global.round() > App.globalGet(Bytes("VotingRoundStart"))
+                Assert(Global.round() > App.globalGet(Bytes("VotingStartRound"))
                        + App.globalGet(Bytes("MinRoundsPerProposal")))
             ),
             App.globalPut(Bytes("VoteInProgress"), Int(1)),
-            App.globalPut(Bytes("VotingRoundStart"), Global.round()),
+            App.globalPut(Bytes("VotingStartRound"), Global.round()),
             App.globalPut(Bytes("ConsideredAppId"), Btoi(Txn.application_args[1])),
             App.globalPut(Bytes("ConsideredAppAddr"), Txn.application_args[2]),
             Return(Int(1)),
@@ -215,13 +220,16 @@ class CreateStaticPreapprovalGate(CreateContract):
                 Seq([
                     set_asset_freeze(
                         Global.current_application_address(),
-                        App.globalGet(Bytes("TrustedAssetId")),
+                        App.globalGet(Bytes("TrustAssetId")),
                         Int(0)
                     ),
-                    send_asset(App.globalGet(Bytes("ConsideredAppAddr")), App.globalGet(Bytes("TrustAssetId"))),
+                    send_asset(
+                        App.globalGet(Bytes("ConsideredAppAddr")),
+                        App.globalGet(Bytes("TrustAssetId"))
+                    ),
                     set_asset_freeze(
                         App.globalGet(Bytes("ConsideredAppAddr")),
-                        App.globalGet(Bytes("TrustedAssetId")),
+                        App.globalGet(Bytes("TrustAssetId")),
                         Int(1),
                     ),
                     App.globalPut(Bytes("VoteInProgress"), Int(0)),
@@ -276,7 +284,17 @@ class CreateStaticPreapprovalGate(CreateContract):
         )
 
 class DeployedStaticPreapprovalGate(DeployedContract):
-    def __init__(self, appid: int):
+    def __init__(
+            self,
+            appid: int,
+            committee_id: int,
+            committee_asset_id: int,
+            committee_address: str,
+    ):
+        self._committee_id: int = committee_id
+        self._committee_asset_id: int = committee_asset_id
+        self._committee_addr: str = committee_address
+        self._trust_asset_id: int = None
         super(DeployedStaticPreapprovalGate, self).__init__(appid)
 
     def call_inittoken(
@@ -289,7 +307,7 @@ class DeployedStaticPreapprovalGate(DeployedContract):
             asset_name: str,
             asset_url: str
     ):
-        return self.call_method(
+        info = self.call_method(
             algod,
             addr,
             privkey,
@@ -301,6 +319,8 @@ class DeployedStaticPreapprovalGate(DeployedContract):
                 asset_url.encode(),
             ]
         )
+        self._trust_asset_id = info['inner-txns'][0]['asset-index']
+        return info
 
     def call_assessproposal(
             self,
@@ -317,8 +337,10 @@ class DeployedStaticPreapprovalGate(DeployedContract):
             b'assessproposal',
             [
                 algodao.helpers.int2bytes(considered_appid),
-                considered_appaddr.encode(),
-            ]
+                algosdk.encoding.decode_address(considered_appaddr),
+            ],
+            foreign_apps=[self._committee_id],
+            foreign_assets=[self._committee_asset_id],
         )
 
     def call_vote(
@@ -329,15 +351,19 @@ class DeployedStaticPreapprovalGate(DeployedContract):
             considered_appid: int,
             vote: int
     ):
+        considered_appaddr = algosdk.logic.get_application_address(considered_appid)
         return self.call_method(
             algod,
             addr,
             privkey,
-            b'inittoken',
+            b'vote',
             [
                 algodao.helpers.int2bytes(considered_appid),
                 algodao.helpers.int2bytes(vote)
-            ]
+            ],
+            foreign_apps=[self._committee_id],
+            foreign_assets=[self._committee_asset_id, self._trust_asset_id],
+            accounts=[self._committee_addr, considered_appaddr],
         )
 
 

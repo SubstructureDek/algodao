@@ -94,7 +94,7 @@ def fund_account(
 ) -> None:
     """Fund provided `address` with `initial_funds` amount of microAlgos."""
     if initial_funds is None:
-        initial_funds = 1000000
+        initial_funds = 10000000
     initial_funds_address = _initial_funds_address()
     if initial_funds_address is None:
         raise Exception("Initial funds weren't transferred!")
