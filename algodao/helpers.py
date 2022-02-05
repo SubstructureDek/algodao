@@ -9,6 +9,9 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import Mode
 
+from algodao.types import TealKeyValueStore
+
+
 log = logging.getLogger(__name__)
 
 
@@ -171,3 +174,24 @@ def optinasset(
 ):
     transferasset(algod, recvaddr, recvprivkey, recvaddr, assetid, 0)
 
+
+def readbytesfromstore(store: TealKeyValueStore, key: bytes) -> bytes:
+    return next(
+        (
+            base64.b64decode(entry['value']['bytes'])
+            for entry in store
+            if base64.b64decode(entry['key']) == key
+        ),
+        b''
+    )
+
+
+def readintfromstore(store: TealKeyValueStore, key: bytes) -> int:
+    return next(
+        (
+            entry['value']['uint']
+            for entry in store
+            if base64.b64decode(entry['key']) == key
+        ),
+        0
+    )

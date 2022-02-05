@@ -1,5 +1,5 @@
 import enum
-from typing import List
+from typing import List, Optional
 
 import algosdk.logic
 from algosdk.v2client.algod import AlgodClient
@@ -12,6 +12,8 @@ from pyteal import InnerTxn, OnComplete
 import algodao.helpers
 from algodao.committee import is_member, current_committee_size_ex, set_asset_freeze, send_asset
 from algodao.contract import CreateContract, DeployedContract
+from algodao.helpers import readintfromstore, readbytesfromstore
+from algodao.types import ApplicationInfo
 
 
 class AlgoDao:
@@ -102,7 +104,6 @@ class CreateStaticPreapprovalGate(CreateContract):
     """
     def __init__(
             self,
-            algod: AlgodClient,
             committee_id: int,
             minrounds: int,
     ):
@@ -286,15 +287,22 @@ class CreateStaticPreapprovalGate(CreateContract):
 class DeployedStaticPreapprovalGate(DeployedContract):
     def __init__(
             self,
+            algod: AlgodClient,
             appid: int,
-            committee_id: int,
-            committee_asset_id: int,
-            committee_address: str,
     ):
-        self._committee_id: int = committee_id
-        self._committee_asset_id: int = committee_asset_id
-        self._committee_addr: str = committee_address
-        self._trust_asset_id: int = None
+        appinfo: ApplicationInfo = algod.application_info(appid)
+        self._committee_id: int = readintfromstore(
+            appinfo['params']['global-state'],
+            b'CommitteeId'
+        )
+        committeeinfo: ApplicationInfo = algod.application_info(self._committee_id)
+        self._committee_asset_id: int = readintfromstore(
+            committeeinfo['params']['global-state'],
+            b'AssetId'
+        )
+        # self._committee_asset_id: int = committee_asset_id
+        self._committee_addr: str = algosdk.logic.get_application_address(self._committee_id)
+        self._trust_asset_id: Optional[int] = None
         super(DeployedStaticPreapprovalGate, self).__init__(appid)
 
     def call_inittoken(

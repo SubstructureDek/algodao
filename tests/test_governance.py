@@ -17,14 +17,9 @@ def test_approvalgate():
     committee.call_inittoken(algod, creatorprivkey, creatoraddr)
     algodao.helpers.optinasset(algod, creatoraddr, creatorprivkey, committee.assetid)
     committee.call_setmembers(algod, creatorprivkey, creatoraddr, [creatoraddr])
-    creategate = CreateStaticPreapprovalGate(algod, committee_id, 1)
+    creategate = CreateStaticPreapprovalGate(committee_id, 1)
     appid = creategate.deploy(algod, creatorprivkey)
-    gate = DeployedStaticPreapprovalGate(
-        appid,
-        committee_id,
-        committee.assetid,
-        committee_addr
-    )
+    gate = DeployedStaticPreapprovalGate(algod, appid)
     algodao.helpers.optinapp(algod, creatorprivkey, creatoraddr, gate.appid)
     gate_addr = algosdk.logic.get_application_address(appid)
     tests.helpers.fund_account(algod, gate_addr)

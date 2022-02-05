@@ -44,10 +44,51 @@ AssetBalances = TypedDict(
     }
 )
 
+ApplicationStateSchema = TypedDict(
+    'ApplicationStateSchema',
+    {
+        'num-bytes-slice': int,
+        'num-uint': int,
+    }
+)
 
-# ApplicationParams = TypedDict(
-#     'ApplicationParams',
-#     {
-#         'id':
-#     }
-# )
+
+TealValue = TypedDict(
+    'TealValue',
+    {
+        'bytes': str,
+        'type': int,
+        'uint': int,
+    }
+)
+
+
+class TealKeyValue(TypedDict):
+    key: str
+    value: TealValue
+
+
+TealKeyValueStore = List[TealKeyValue]
+
+
+ApplicationParams = TypedDict(
+    'ApplicationParams',
+    {
+        'approval-program': str,
+        'clear-state-program': str,
+        'creator': str,
+        'extra-program-pages': int,
+        'global-state': TealKeyValueStore,
+        'global-state-schema': ApplicationStateSchema,
+        'local-state-schema': ApplicationStateSchema,
+    }
+)
+
+
+ApplicationInfo = TypedDict(
+    'ApplicationInfo',
+    {
+        'id': int,
+        'params': ApplicationParams,
+    }
+)
