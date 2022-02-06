@@ -139,7 +139,7 @@ def optinapp(algod: AlgodClient, private_key: str, addr: str, appid: int):
     # log.info("OptIn to app-id:", transaction_response["txn"]["txn"]["apid"])
 
 
-def writedryrun(algod, signed, fname):
+def writedryrun(algod: AlgodClient, signed: transaction.SignedTransaction, fname: str):
     drr = transaction.create_dryrun(algod, [signed])
     with open(fname, 'wb') as fp:
         fp.write(base64.b64decode(algosdk.encoding.msgpack_encode(drr)))

@@ -10,6 +10,7 @@ from pyteal import App, Expr, Mode, Bytes
 
 import algodao.deploy
 import algodao.helpers
+from algodao.types import PendingTransactionInfo
 
 
 class ContractVariables(enum.Enum):
@@ -81,8 +82,8 @@ class CreateContract(abc.ABC):
 
 
 class DeployedContract(abc.ABC):
-    def __init__(self, appid):
-        self._appid = appid
+    def __init__(self, appid: int):
+        self._appid: int = appid
 
     @property
     def appid(self):
@@ -98,7 +99,7 @@ class DeployedContract(abc.ABC):
             accounts=None,
             foreign_apps=None,
             foreign_assets=None,
-    ):
+    ) -> PendingTransactionInfo:
         params = algod.suggested_params()
         txn = transaction.ApplicationNoOpTxn(
             addr,
@@ -116,4 +117,5 @@ class DeployedContract(abc.ABC):
         except algosdk.error.AlgodHTTPError as exc:
             algodao.helpers.writedryrun(algod, signed, 'failed_txn')
             raise
-        return algod.pending_transaction_info(txid)
+        info: PendingTransactionInfo = algod.pending_transaction_info(txid)
+        return info

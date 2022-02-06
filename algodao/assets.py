@@ -257,7 +257,7 @@ class TokenDistributionTree:
             self._token = ElectionToken(info['inner-txns'][0]['asset-index'])
             return self._token.asset_id
     
-        def call_optintoken(self, algod: AlgodClient, addr: str, privkey: str) -> dict:
+        def call_optintoken(self, algod: AlgodClient, addr: str, privkey: str) -> PendingTransactionInfo:
             return self.call_method(
                 algod,
                 addr,

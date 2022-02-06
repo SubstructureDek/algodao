@@ -1,4 +1,6 @@
-from typing import List, TypedDict
+from __future__ import annotations
+
+from typing import List, TypedDict, Any
 
 
 PendingTransactionInfo = TypedDict(
@@ -6,6 +8,9 @@ PendingTransactionInfo = TypedDict(
     {
         'asset-index': int,
         'application-index': int,
+        # mypy does not support cyclic references but the elements of this
+        # list will also be PendingTransactionInfo type
+        'inner-txns': List[Any]
     }
 )
 
@@ -92,3 +97,4 @@ ApplicationInfo = TypedDict(
         'params': ApplicationParams,
     }
 )
+

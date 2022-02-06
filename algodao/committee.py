@@ -225,7 +225,7 @@ class Committee:
             return Return(Int(1))
 
     class DeployedCommittee(DeployedContract):
-        def __init__(self, appid):
+        def __init__(self, appid: int):
             super(Committee.DeployedCommittee, self).__init__(appid)
 
         def call_resign(self, algod: AlgodClient, privkey: str, addr: str):
