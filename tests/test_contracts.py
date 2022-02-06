@@ -12,6 +12,7 @@ import algodao.voting
 from algodao.types import AccountInfo
 
 import tests.helpers
+from tests.test_assets import _createnft
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def test_proposal():
     votebegin = regbegin
     voteend = regend
     num_options = 3
-    proposal = algodao.voting.Proposal(
+    proposal = algodao.voting.Proposal.CreateProposal(
         "Test Proposal",
         token,
         regbegin,
@@ -86,14 +87,14 @@ def test_proposal():
         voteend,
         num_options
     )
-    appid = proposal.deploycontract(algod, creatorprivkey)
-    appaddr = algosdk.logic.get_application_address(appid)
+    deployed = algodao.voting.Proposal.deploy(algod, proposal, creatorprivkey)
+    appaddr = algosdk.logic.get_application_address(deployed.appid)
     tests.helpers.fund_account(algod, appaddr, amount)
-    proposal.optintoken(algod, creatoraddr, creatorprivkey)
+    deployed.call_optintoken(algod, creatoraddr, creatorprivkey, deployed._assetid)
     algodao.helpers.optinasset(algod, useraddr, userprivkey, token.asset_id)
     algodao.helpers.transferasset(algod, creatoraddr, creatorprivkey, useraddr, token.asset_id, 10)
-    algodao.helpers.optinapp(algod, userprivkey, useraddr, appid)
-    proposal.sendvote(algod, userprivkey, useraddr, 2, 10)
+    algodao.helpers.optinapp(algod, userprivkey, useraddr, deployed.appid)
+    deployed.call_vote(algod, userprivkey, useraddr, 2, 10)
 
 # from pyteal import *
 # from algosdk.future.transaction import StateSchema

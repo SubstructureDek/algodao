@@ -9,7 +9,7 @@ from algosdk.future import transaction
 from pyteal import Seq, Assert, App, Return, Int, Btoi, Txn, Expr, Bytes
 from pyteal import Cond, Gtxn, Global, Len, Concat, OnComplete, And, Or, Not
 from pyteal import InnerTxnBuilder, TxnField, TxnType, If, ScratchVar, TealType
-from pyteal import InnerTxn, OnComplete
+from pyteal import InnerTxn
 
 import algodao.helpers
 from algodao.committee import is_member, current_committee_size_ex, set_asset_freeze, send_asset
@@ -21,74 +21,95 @@ from algodao.types import ApplicationInfo
 
 
 class AlgoDao:
-    def __init__(self):
-        pass
+    class GlobalInts(GlobalVariables):
+        Finalized = enum.auto()
+        Closed = enum.auto()
+        TrustAsset = enum.auto()
 
-    def algodaocontract(self) -> Expr:
-        on_creation = Seq([
-            Assert(Txn.application_args.length() == Int(1)),
-            App.globalPut(Bytes("Name"), Txn.application_args[0]),
-            App.globalPut(Bytes("Committees"), Bytes(b'')),
-            App.globalPut(Bytes("Finalized"), Int(0)),
-            App.globalPut(Bytes("Closed"), Int(0)),
-            App.globalPut(Bytes("ProposalRules"), Bytes(b'')),
-            Return(Int(1)),
-        ])
-        setup_phase_approved = And(
-            Not(App.globalGet(Bytes("Finalized"))),
-            Txn.sender() == Global.creator_address()
-        )
-        on_addcommittee = Seq([
-            Assert(setup_phase_approved),
-            Assert(Txn.application_args.length() == Int(1)),
-            Assert(Len(Txn.application_args[0]) == Int(8)),
-            App.globalPut(
-                Bytes("Committees"),
-                Concat(
-                    App.globalGet(Bytes("Committees")),
-                    Txn.application_args[0]
-                )
-            ),
-            Return(Int(1)),
-        ])
+    class GlobalBytes(GlobalVariables):
+        Name = enum.auto()
+        Committees = enum.auto()
+        ProposalRules = enum.auto()
 
-        on_addrule = Seq([
-            Assert(setup_phase_approved),
-            Assert(Txn.application_args.length() == Int(1)),
-            Assert(Len(Txn.application_args[0]) == Int(8)),
-            App.globalPut(
-                Bytes("ProposalRules"),
-                Concat(
-                    App.globalGet(Bytes("ProposalRules")),
+    class CreateDao(CreateContract):
+        def __init__(self, name: str, trust_assetid: int):
+            self._name: str = name
+            self._trust_assetid: int = trust_assetid
+
+        def createapp_args(self) -> List[bytes]:
+            return [
+                self._name.encode(),
+                algodao.helpers.int2bytes(self._trust_assetid)
+            ]
+
+        def approval_program(self) -> Expr:
+            GlobalBytes = AlgoDao.GlobalBytes
+            GlobalInts = AlgoDao.GlobalInts
+            on_creation = Seq([
+                Assert(Txn.application_args.length() == Int(2)),
+                GlobalBytes.Name.put(Txn.application_args[0]),
+                GlobalInts.TrustAsset.put(Btoi(Txn.application_args[1])),
+                GlobalBytes.Committees.put(Bytes(b'')),
+                GlobalInts.Finalized.put(Int(0)),
+                GlobalInts.Closed.put(Int(0)),
+                GlobalBytes.ProposalRules.put(Bytes(b'')),
+                Return(Int(1)),
+            ])
+            setup_phase_approved = And(
+                Not(GlobalInts.Finalized.get()),
+                Txn.sender() == Global.creator_address()
+            )
+            on_addcommittee = Seq([
+                Assert(setup_phase_approved),
+                Assert(Txn.application_args.length() == Int(1)),
+                Assert(Len(Txn.application_args[0]) == Int(8)),
+                GlobalBytes.Committees.put(Concat(
+                    GlobalBytes.Committees.get(),
                     Txn.application_args[0]
-                )
-            ),
-            Return(Int(1)),
-        ])
-        on_finalize = Seq([
-            Assert(setup_phase_approved),
-            Assert(Txn.application_args.length() == Int(0)),
-            App.globalPut(Bytes("Finalized"), Int(1)),
-            Return(Int(1)),
-        ])
-        can_delete = Seq([
-            Return(Or(
-                # DAO has not been finalized and sender is attempting to delete
-                setup_phase_approved,
-                # or, DAO has been closed out by the specified closure process,
-                App.globalGet(Bytes("Closed")),
-            ))
-        ])
-        # TODO: add ability to change governance structure via proposal
-        can_update = Return(Int(0))
-        return Cond(
-            [Txn.application_id == Int(0), on_creation],
-            [Txn.on_completion() == OnComplete.DeleteApplication, can_delete],
-            [Txn.on_completion() == OnComplete.UpdateApplication, can_update],
-            [Txn.application_args[0] == Bytes('addcommittee'), on_addcommittee],
-            [Txn.application_args[0] == Bytes('addrule'), on_addrule],
-            [Txn.application_args[0] == Bytes('finalize'), on_finalize],
-        )
+                )),
+                Return(Int(1)),
+            ])
+            on_addrule = Seq([
+                Assert(setup_phase_approved),
+                Assert(Txn.application_args.length() == Int(1)),
+                Assert(Len(Txn.application_args[0]) == Int(8)),
+                GlobalBytes.ProposalRules.put(Concat(
+                    GlobalBytes.ProposalRules.get(),
+                    Txn.application_args[0]
+                )),
+                Return(Int(1)),
+            ])
+            on_finalize = Seq([
+                Assert(setup_phase_approved),
+                Assert(Txn.application_args.length() == Int(0)),
+                GlobalInts.Finalized.put(Int(1)),
+                Return(Int(1)),
+            ])
+            can_delete = Seq([
+                Return(Or(
+                    # DAO has not been finalized and sender is attempting to delete
+                    setup_phase_approved,
+                    # or, DAO has been closed out by the specified closure process,
+                    And(
+                        GlobalInts.Closed.get(),
+                        Txn.sender() == Global.creator_address()
+                    )
+                ))
+            ])
+            # TODO: add ability to change governance structure via proposal
+            can_update = Return(Int(0))
+            return Cond(
+                [Txn.application_id == Int(0), on_creation],
+                [Txn.on_completion() == OnComplete.DeleteApplication, can_delete],
+                [Txn.on_completion() == OnComplete.UpdateApplication, can_update],
+                [Txn.application_args[0] == Bytes('addcommittee'), on_addcommittee],
+                [Txn.application_args[0] == Bytes('addrule'), on_addrule],
+                [Txn.application_args[0] == Bytes('finalize'), on_finalize],
+            )
+
+        def clear_program(self) -> Expr:
+            return Return(Int(1))
+
 
 
 class PreapprovalGate:

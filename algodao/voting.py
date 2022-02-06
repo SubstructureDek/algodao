@@ -1,5 +1,6 @@
 # This example is provided for informational purposes only and has not been
 # audited for security.
+import enum
 import logging
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional
@@ -12,188 +13,206 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import Int, Expr, Return, Bytes, App, Assert, InnerTxnBuilder
 from pyteal import Txn, Btoi, Global, Seq, And, TxnField, Concat, TxnType
-from pyteal import Gtxn, Cond, OnComplete, Mode, Subroutine
+from pyteal import Gtxn, Cond, OnComplete, Mode, InnerTxn
 
 import algodao.deploy
 import algodao.helpers
-from algodao.types import AssetBalances
+from algodao.contract import CreateContract, DeployedContract, GlobalVariables
+from algodao.types import AssetBalances, ApplicationInfo
 from algodao.assets import ElectionToken, GovernanceToken, TokenDistributionTree
 
 log = logging.getLogger(__name__)
 
 
-# @Subroutine
-# def meets_criteria(yesvotes: Expr, novotes: Expr, quorum_req: Expr, approval_mech: Expr, )
-
 class Proposal:
-    def __init__(
-            self,
-            name: str,
-            token: ElectionToken,
-            regbegin: int,
-            regend: int,
-            start_vote: int,
-            end_vote: int,
-            num_options: int,
-    ):
-        self._name: str = name
-        self._token: ElectionToken = token
-        self._regbegin: int = regbegin
-        self._regend: int = regend
-        self._start_vote: int = start_vote
-        self._end_vote: int = end_vote
-        self._num_options: int = num_options
-        self._appid: Optional[int] = None
+    class GlobalInts(GlobalVariables):
+        RegBegin = enum.auto()
+        RegEnd = enum.auto()
+        VoteBegin = enum.auto()
+        VoteEnd = enum.auto()
+        VoteAssetId = enum.auto()
+        NumOptions = enum.auto()
 
-    def approval_program(self) -> Expr:
-        expected_args = 4
-        on_creation = Seq([
-            Assert(Txn.application_args.length() == Int(expected_args)),
-            App.globalPut(Bytes("RegBegin"), Btoi(Txn.application_args[0])),
-            App.globalPut(Bytes("RegEnd"), Btoi(Txn.application_args[1])),
-            App.globalPut(Bytes("VoteBegin"), Btoi(Txn.application_args[2])),
-            App.globalPut(Bytes("VoteEnd"), Btoi(Txn.application_args[3])),
-            Return(Int(1)),
-        ])
-        on_register = Return(
-            And(
-                Global.round() >= App.globalGet(Bytes("RegBegin")),
-                Global.round() <= App.globalGet(Bytes("RegEnd")),
+    class GlobalBytes(GlobalVariables):
+        Name = enum.auto()
+
+    class CreateProposal(CreateContract):
+        def __init__(
+                self,
+                name: str,
+                token: ElectionToken,
+                regbegin: int,
+                regend: int,
+                start_vote: int,
+                end_vote: int,
+                num_options: int,
+        ):
+            self._name: str = name
+            self._token: ElectionToken = token
+            self._regbegin: int = regbegin
+            self._regend: int = regend
+            self._start_vote: int = start_vote
+            self._end_vote: int = end_vote
+            self._num_options: int = num_options
+
+        def approval_program(self) -> Expr:
+            GlobalInts = Proposal.GlobalInts
+            GlobalBytes = Proposal.GlobalBytes
+            expected_args = 7
+            on_creation = Seq([
+                Assert(Txn.application_args.length() == Int(expected_args)),
+                GlobalBytes.Name.put(Txn.application_args[0]),
+                GlobalInts.VoteAssetId.put(Btoi(Txn.application_args[1])),
+                GlobalInts.RegBegin.put(Btoi(Txn.application_args[2])),
+                GlobalInts.RegEnd.put(Btoi(Txn.application_args[3])),
+                GlobalInts.VoteBegin.put(Btoi(Txn.application_args[4])),
+                GlobalInts.VoteEnd.put(Btoi(Txn.application_args[5])),
+                GlobalInts.NumOptions.put(Btoi(Txn.application_args[6])),
+                Return(Int(1)),
+            ])
+            on_register = Return(
+                And(
+                    Global.round() >= GlobalInts.RegBegin.get(),
+                    Global.round() <= GlobalInts.RegEnd.get(),
+                )
             )
-        )
-        is_creator = Txn.sender() == Global.creator_address()
-        on_optintoken = Seq([
-            Assert(is_creator),
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields({
-                TxnField.type_enum: TxnType.AssetTransfer,
-                TxnField.asset_receiver: Global.current_application_address(),
-                TxnField.xfer_asset: Btoi(Txn.application_args[1]),
-                TxnField.asset_amount: Int(0),
-            }),
-            InnerTxnBuilder.Submit(),
-            # App.globalPut(Bytes("AssetId"), Int(self._token.asset_id)),
-            Return(Int(1)),
-        ])
-        option = Txn.application_args[1]
-        globalname = Concat(Bytes("AllVotes"), option)
-        votes = Gtxn[1].asset_amount()
-        on_vote = Seq([
-            Assert(And(
-                Global.round() >= App.globalGet(Bytes("VoteBegin")),
-                Global.round() <= App.globalGet(Bytes("VoteEnd")),
-                Global.group_size() == Int(2),
-                Txn.group_index() == Int(0),
-                Gtxn[1].xfer_asset() == Int(self._token.asset_id),
-                Gtxn[1].asset_receiver() == Global.current_application_address(),
-            )),
-            App.localPut(
-                Txn.sender(),
-                Concat(Bytes("Voted"), option),
-                votes
-            ),
-            App.globalPut(
-                globalname,
-                App.globalGet(globalname) + votes
-            ),
-            Return(Int(1)),
-        ])
-        on_closeout = Return(Int(1))
-        program = Cond(
-            [Txn.application_id() == Int(0), on_creation],
-            [Txn.on_completion() == OnComplete.DeleteApplication, Return(is_creator)],
-            [Txn.on_completion() == OnComplete.UpdateApplication, Return(is_creator)],
-            [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
-            [Txn.on_completion() == OnComplete.OptIn, on_register],
-            [Txn.application_args[0] == Bytes("vote"), on_vote],
-            [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
-        )
-        return program
+            is_creator = Txn.sender() == Global.creator_address()
+            on_optintoken = Seq([
+                Assert(is_creator),
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.AssetTransfer,
+                    TxnField.asset_receiver: Global.current_application_address(),
+                    TxnField.xfer_asset: Btoi(Txn.application_args[1]),
+                    TxnField.asset_amount: Int(0),
+                }),
+                InnerTxnBuilder.Submit(),
+                Return(Int(1)),
+            ])
+            on_setvotetoken = Seq([
+                Assert(is_creator),
+                Assert(GlobalInts.VoteAssetId.get() == Int(0)),
+                GlobalInts.VoteAssetId.put(Btoi(Txn.application_args[1])),
+                Return(Int(1)),
+            ])
+            option = Txn.application_args[1]
+            globalname = Concat(Bytes("AllVotes"), option)
+            votes = Gtxn[1].asset_amount()
+            on_vote = Seq([
+                Assert(And(
+                    Global.round() >= GlobalInts.VoteBegin.get(),
+                    Global.round() <= GlobalInts.VoteEnd.get(),
+                    Global.group_size() == Int(2),
+                    Txn.group_index() == Int(0),
+                    Gtxn[1].xfer_asset() == GlobalInts.VoteAssetId.get(),
+                    Gtxn[1].asset_receiver() == Global.current_application_address(),
+                )),
+                App.localPut(
+                    Txn.sender(),
+                    Concat(Bytes("Voted"), option),
+                    votes
+                ),
+                App.globalPut(
+                    globalname,
+                    App.globalGet(globalname) + votes
+                ),
+                Return(Int(1)),
+            ])
+            on_closeout = Return(Int(1))
+            program = Cond(
+                [Txn.application_id() == Int(0), on_creation],
+                [Txn.on_completion() == OnComplete.DeleteApplication, Return(is_creator)],
+                [Txn.on_completion() == OnComplete.UpdateApplication, Return(is_creator)],
+                [Txn.on_completion() == OnComplete.CloseOut, on_closeout],
+                [Txn.on_completion() == OnComplete.OptIn, on_register],
+                [Txn.application_args[0] == Bytes("vote"), on_vote],
+                [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
+                [Txn.application_args[0] == Bytes("setvotetoken"), on_setvotetoken],
+            )
+            return program
 
-    def optintoken(self, algod: AlgodClient, addr: str, privkey: str, assetid):
-        args: List[bytes] = [
-            b'optintoken',
-            assetid
-        ]
-        params = algod.suggested_params()
-        txn = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            args,
-            foreign_assets=[assetid]
-        )
-        signed = txn.sign(privkey)
-        txid = algod.send_transaction(signed)
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def clear_program(self) -> Expr:
+            return Return(Int(1))
 
-    def clear_program(self) -> Expr:
-        return Return(Int(1))
+        def createapp_args(self) -> List[bytes]:
+            return [
+                self._name.encode(),
+                algodao.helpers.int2bytes(self._token.asset_id),
+                algodao.helpers.int2bytes(self._regbegin),
+                algodao.helpers.int2bytes(self._regend),
+                algodao.helpers.int2bytes(self._start_vote),
+                algodao.helpers.int2bytes(self._end_vote),
+                algodao.helpers.int2bytes(self._num_options),
+            ]
 
-    def createappargs(self) -> List[bytes]:
-        return [
-            algodao.helpers.int2bytes(self._regbegin),
-            algodao.helpers.int2bytes(self._regend),
-            algodao.helpers.int2bytes(self._start_vote),
-            algodao.helpers.int2bytes(self._end_vote),
-        ]
+        def global_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(
+                len(Proposal.GlobalInts) + self._num_options,
+                len(Proposal.GlobalBytes)
+            )
 
-    def globalschema(self):
-        global_ints = 4 + self._num_options
-        global_bytes = 0
-        return transaction.StateSchema(global_ints, global_bytes)
+        def local_schema(self) -> transaction.StateSchema:
+            local_ints = self._num_options
+            local_bytes = 0
+            return transaction.StateSchema(local_ints, local_bytes)
 
-    def localschema(self):
-        local_ints = self._num_options
-        local_bytes = 0
-        return transaction.StateSchema(local_ints, local_bytes)
+    class DeployedProposal(DeployedContract):
+        def __init__(self, algod: AlgodClient, appid: int):
+            appinfo: ApplicationInfo = algod.application_info(appid)
+            self._assetid = algodao.helpers.readintfromstore(
+                appinfo['params']['global-state'],
+                Proposal.GlobalInts.VoteAssetId.name.encode()
+            )
+            self._num_options = algodao.helpers.readintfromstore(
+                appinfo['params']['global-state'],
+                Proposal.GlobalInts.NumOptions.name.encode()
+            )
+            super(Proposal.DeployedProposal, self).__init__(appid)
 
-    def deploycontract(self, algod: AlgodClient, privkey: str) -> int:
-        approval_teal = pyteal.compileTeal(self.approval_program(), Mode.Application, version=5)
-        approval_compiled = algodao.deploy.compile_program(algod, approval_teal)
-        clear_teal = pyteal.compileTeal(self.clear_program(), Mode.Application, version=5)
-        clear_compiled = algodao.deploy.compile_program(algod, clear_teal)
-        global_schema = self.globalschema()
-        local_schema = self.localschema()
-        app_args = self.createappargs()
-        self._appid = algodao.deploy.create_app(
-            algod,
-            privkey,
-            approval_compiled,
-            clear_compiled,
-            global_schema,
-            local_schema,
-            app_args,
-        )
-        return self._appid
+        def call_optintoken(self, algod: AlgodClient, addr: str, privkey: str, assetid: int):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'optintoken',
+                [
+                    algodao.helpers.int2bytes(assetid),
+                ],
+                foreign_assets=[assetid],
+            )
 
-    def sendvote(self, algod: AlgodClient, privkey: str, addr: str, option: int, amount: int):
-        args: List[bytes] = [
-            b"vote",
-            algodao.helpers.int2bytes(option)
-        ]
-        params = algod.suggested_params()
-        appaddr = algosdk.logic.get_application_address(self._appid)
-        txn1 = transaction.ApplicationNoOpTxn(
-            addr,
-            params,
-            self._appid,
-            args,
-        )
-        txn2 = transaction.AssetTransferTxn(
-            addr,
-            params,
-            appaddr,
-            amount,
-            self._token.asset_id,
-        )
-        groupid = transaction.calculate_group_id([txn1, txn2])
-        txn1.group = groupid
-        txn2.group = groupid
-        signed1 = txn1.sign(privkey)
-        signed2 = txn2.sign(privkey)
-        txid = algod.send_transactions([signed1, signed2])
-        algodao.helpers.wait_for_confirmation(algod, txid)
+        def call_vote(self, algod: AlgodClient, privkey: str, addr: str, option: int, amount: int):
+            args: List[bytes] = [
+                b"vote",
+                algodao.helpers.int2bytes(option)
+            ]
+            params = algod.suggested_params()
+            appaddr = algosdk.logic.get_application_address(self._appid)
+            txn1 = transaction.ApplicationNoOpTxn(
+                addr,
+                params,
+                self._appid,
+                args,
+            )
+            txn2 = transaction.AssetTransferTxn(
+                addr,
+                params,
+                appaddr,
+                amount,
+                self._assetid,
+            )
+            groupid = transaction.calculate_group_id([txn1, txn2])
+            txn1.group = groupid
+            txn2.group = groupid
+            signed1 = txn1.sign(privkey)
+            signed2 = txn2.sign(privkey)
+            txid = algod.send_transactions([signed1, signed2])
+            algodao.helpers.wait_for_confirmation(algod, txid)
+
+    @classmethod
+    def deploy(cls, algod: AlgodClient, createprop: CreateProposal, privkey: str):
+        appid = createprop.deploy(algod, privkey)
+        return Proposal.DeployedProposal(algod, appid)
 
 
 class Election:
@@ -219,7 +238,12 @@ class Election:
             (address, self._gov2votes(govcount))
             for address, govcount in balance_dict
         )
-        return TokenDistributionTree(self._vote_token, votedist, self._beginreg, self._endreg)
+        return TokenDistributionTree.CreateTree(
+            self._vote_token,
+            votedist,
+            self._beginreg,
+            self._endreg
+        )
 
     def gettokencounts(self) -> Dict[str, int]:
         balance_dict = {}

@@ -161,8 +161,8 @@ class TokenDistributionTree:
                 Assert(
                     And(
                         Txn.application_args.length() == Int(5),
-                        Global.round() >= App.globalGet(Bytes("RegBegin")),
-                        Global.round() <= App.globalGet(Bytes("RegEnd")),
+                        Global.round() >= GlobalInts.RegBegin.get(),
+                        Global.round() <= GlobalInts.RegEnd.get(),
                     )
                 ),
                 runninghash.store(Sha256(Concat(address, Bytes(':'), count))),
