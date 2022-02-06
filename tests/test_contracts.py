@@ -96,7 +96,7 @@ def test_proposal():
     algodao.helpers.optinasset(algod, useraddr, userprivkey, token.asset_id)
     algodao.helpers.transferasset(algod, creatoraddr, creatorprivkey, useraddr, token.asset_id, 10)
     algodao.helpers.optinapp(algod, userprivkey, useraddr, deployed.appid)
-    deployed.call_vote(algod, userprivkey, useraddr, 2, 10)
+    deployed.call_vote(algod, useraddr, userprivkey, 2, 10)
 
 # from pyteal import *
 # from algosdk.future.transaction import StateSchema

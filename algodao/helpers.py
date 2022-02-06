@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+from typing import List
 
 import algosdk
 from algosdk.future import transaction
@@ -138,8 +139,12 @@ def optinapp(algod: AlgodClient, private_key: str, addr: str, appid: int):
     # log.info("OptIn to app-id:", transaction_response["txn"]["txn"]["apid"])
 
 
-def writedryrun(algod: AlgodClient, signed: transaction.SignedTransaction, fname: str):
-    drr = transaction.create_dryrun(algod, [signed])
+def writedryrun(
+        algod: AlgodClient,
+        signed_txns: List[transaction.SignedTransaction],
+        fname: str
+):
+    drr = transaction.create_dryrun(algod, signed_txns)
     with open(fname, 'wb') as fp:
         fp.write(base64.b64decode(algosdk.encoding.msgpack_encode(drr)))
 
@@ -200,3 +205,12 @@ def appaddr(appid: Expr):
     return Sha512_256(
         Concat(Bytes("appID"), Itob(appid))
     )
+
+
+def wait_for_round(client, round):
+    last_round = client.status().get("last-round")
+    log.info(f"Waiting for round {round}")
+    while last_round < round:
+        last_round += 1
+        client.status_after_block(last_round)
+        log.info(f"Round {last_round}")

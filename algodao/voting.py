@@ -128,7 +128,7 @@ class Proposal:
             )
 
         def setvotedata(self, votetype: VoteType, win_pct: int):
-            if win_pct <= 0 or win_pct > 100:
+            if win_pct < 0 or win_pct > 100:
                 raise ValueError(f"Invalid win percentage: {win_pct}")
             # TODO: implement committee votes
             if votetype != VoteType.GOVERNANCE_TOKEN:
@@ -142,7 +142,7 @@ class Proposal:
             GlobalInts = Proposal.GlobalInts
             GlobalBytes = Proposal.GlobalBytes
             on_creation = Seq([
-                Assert(Txn.application_args.length() == Int(9)),
+                Assert(Txn.application_args.length() == Int(11)),
                 GlobalBytes.Name.put(Txn.application_args[0]),
                 GlobalInts.VoteAssetId.put(Btoi(Txn.application_args[1])),
                 GlobalInts.RegBegin.put(Btoi(Txn.application_args[2])),
@@ -152,6 +152,8 @@ class Proposal:
                 GlobalInts.NumOptions.put(Btoi(Txn.application_args[6])),
                 GlobalInts.ProposalType.put(Btoi(Txn.application_args[7])),
                 GlobalInts.DaoId.put(Btoi(Txn.application_args[8])),
+                GlobalBytes.VoteTypeData.put(Txn.application_args[9]),
+                GlobalBytes.AdditionalData.put(Txn.application_args[10]),
                 GlobalInts.Passed.put(Int(0)),
                 GlobalInts.Implemented.put(Int(0)),
                 GlobalInts.VoteType.put(Int(VoteType.GOVERNANCE_TOKEN.value)),
@@ -223,6 +225,7 @@ class Proposal:
             on_finalizevote = Seq([
                 Assert(And(
                     Global.round() > GlobalInts.VoteEnd.get(),
+                    Txn.application_args.length() == Int(1),
                 )),
                 If(
                     is_updown_vote(GlobalInts.VoteType.get()),
@@ -240,9 +243,9 @@ class Proposal:
                         If(
                             yesvotes.load() >= minvotes.load(),
                             GlobalInts.Passed.put(Int(1))
-                        )
+                        ),
+                        Return(Int(1)),
                     ]),
-                    Return(Int(1)),
                 ),
                 Return(Int(0)),
             ])
@@ -250,6 +253,7 @@ class Proposal:
                 Assert(And(
                     Global.group_size() == Int(2),
                     Txn.group_index() == Int(1),
+                    Txn.application_args.length() == Int(1),
                     Gtxn[0].application_id() == GlobalInts.DaoId.get(),
                     Gtxn[0].application_args[0] == Bytes("implementproposal"),
                     GlobalInts.Implemented.get() == Int(0),
@@ -285,13 +289,15 @@ class Proposal:
                 algodao.helpers.int2bytes(self._end_vote),
                 algodao.helpers.int2bytes(self._num_options),
                 algodao.helpers.int2bytes(self._proptype.value),
-                algodao.helpers.int2bytes(self._daoid)
+                algodao.helpers.int2bytes(self._daoid),
+                self._vtypedata,
+                self._additionaldata,
             ]
 
         def global_schema(self) -> transaction.StateSchema:
             return transaction.StateSchema(
                 len(Proposal.GlobalInts) + self._num_options,
-                len(Proposal.GlobalBytes)
+                len(Proposal.GlobalBytes) + self._num_options,
             )
 
         def local_schema(self) -> transaction.StateSchema:
@@ -324,7 +330,7 @@ class Proposal:
                 foreign_assets=[assetid],
             )
 
-        def call_vote(self, algod: AlgodClient, privkey: str, addr: str, option: int, amount: int):
+        def call_vote(self, algod: AlgodClient, addr: str, privkey: str, option: int, amount: int):
             args: List[bytes] = [
                 b"vote",
                 algodao.helpers.int2bytes(option)
@@ -334,7 +340,7 @@ class Proposal:
             txn1 = transaction.ApplicationNoOpTxn(
                 addr,
                 params,
-                self._appid,
+                self.appid,
                 args,
             )
             txn2 = transaction.AssetTransferTxn(
@@ -349,8 +355,22 @@ class Proposal:
             txn2.group = groupid
             signed1 = txn1.sign(privkey)
             signed2 = txn2.sign(privkey)
-            txid = algod.send_transactions([signed1, signed2])
-            algodao.helpers.wait_for_confirmation(algod, txid)
+            try:
+                txid = algod.send_transactions([signed1, signed2])
+                algodao.helpers.wait_for_confirmation(algod, txid)
+            except Exception as exc:
+                algodao.helpers.writedryrun(algod, signed1, 'failed_txn1')
+                algodao.helpers.writedryrun(algod, signed2, 'failed_txn2')
+                raise
+
+        def call_finalizevote(self, algod: AlgodClient, addr: str, privkey: str):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'finalizevote',
+                []
+            )
 
     @classmethod
     def deploy(cls, algod: AlgodClient, createprop: CreateProposal, privkey: str):

@@ -18,6 +18,7 @@ from algodao.contract import CreateContract, DeployedContract, GlobalVariables
 from algodao.contract import LocalVariables
 from algodao.helpers import readintfromstore, appaddr
 from algodao.voting import Proposal, ProposalType, proposal_payment_amount, proposal_payment_address
+from algodao.voting import VoteType
 from algodao.types import ApplicationInfo
 
 RULE_LEN = 16
@@ -43,30 +44,28 @@ def find_rule(proposal_rules: Expr, proposal_type: Expr):
             index.store(index.load() + Int(PROPOSAL_RULE_LEN))
         ).Do(
             If(
-                Btoi(Substring(proposal_rules, index.load(), index.load() + 8)) == proposal_type,
+                Btoi(Substring(proposal_rules, index.load(), index.load() + Int(8))) == proposal_type,
                 Return(Substring(
                     proposal_rules,
-                    index.load() + 8,
-                    index.load() + PROPOSAL_RULE_LEN
+                    index.load() + Int(8),
+                    index.load() + Int(PROPOSAL_RULE_LEN)
                 )),
             )
         ),
         # proposal type not found in rules
-        Assert(Int(0))
+        Assert(Int(0)),
+        # previous assert will always fail by TEAL still requires a Return
+        Return(Bytes('')),
     ])
 
 
 @Subroutine(TealType.uint64)
 def satisfies_rule(proposal_appid: Expr, rule: Expr):
-    vote_type = App.globalGetEx(proposal_appid, Proposal.GlobalInts.VoteType.bytes)
     vtype_data = App.globalGetEx(proposal_appid, Proposal.GlobalBytes.VoteTypeData.bytes)
     return Seq([
-        vote_type,
-        Assert(vote_type.hasValue()),
-        Return(And(
-            Btoi(Substring(rule, Int(0), Int(8))) == vote_type.value(),
-            Btoi(Substring(rule, Int(8), Int(RULE_LEN)) == vtype_data.value())
-        )),
+        vtype_data,
+        Assert(vtype_data.hasValue()),
+        Return(rule == vtype_data.value()),
     ])
 
 
@@ -77,7 +76,7 @@ def proposal_meets_criteria(proposal_appid: Expr, proposal_rules: Expr):
     return Seq([
         proposal_type,
         Assert(proposal_type.hasValue()),
-        rule.store(find_rule(proposal_rules, proposal_type)),
+        rule.store(find_rule(proposal_rules, proposal_type.value())),
         Return(satisfies_rule(proposal_appid, rule.load())),
     ])
 
@@ -100,14 +99,14 @@ def implement_proposal(proposal_appid: Expr):
         addl_data,
         Assert(And(proposal_type.hasValue(), addl_data.hasValue())),
         If(
-            proposal_type == Int(ProposalType.PAYMENT.value),
+            proposal_type.value() == Int(ProposalType.PAYMENT.value),
             Seq([
 
                 InnerTxnBuilder.Begin(),
                 InnerTxnBuilder.SetFields({
                     TxnField.type_enum: TxnType.Payment,
-                    TxnField.receiver: proposal_payment_address(addl_data),
-                    TxnField.amount: proposal_payment_amount(addl_data),
+                    TxnField.receiver: proposal_payment_address(addl_data.value()),
+                    TxnField.amount: proposal_payment_amount(addl_data.value()),
                 })
             ])
 
@@ -157,40 +156,40 @@ class AlgoDao:
             )
             on_addcommittee = Seq([
                 Assert(setup_phase_approved),
-                Assert(Txn.application_args.length() == Int(1)),
-                Assert(Len(Txn.application_args[0]) == Int(8)),
+                Assert(Txn.application_args.length() == Int(2)),
+                Assert(Len(Txn.application_args[1]) == Int(8)),
                 GlobalBytes.Committees.put(Concat(
                     GlobalBytes.Committees.get(),
-                    Txn.application_args[0]
+                    Txn.application_args[1]
                 )),
                 Return(Int(1)),
             ])
             on_addrule = Seq([
                 Assert(setup_phase_approved),
-                Assert(Txn.application_args.length() == Int(1)),
-                Assert(Len(Txn.application_args[0]) == Int(8)),
+                Assert(Txn.application_args.length() == Int(2)),
+                Assert(Len(Txn.application_args[1]) == Int(PROPOSAL_RULE_LEN)),
                 GlobalBytes.ProposalRules.put(Concat(
                     GlobalBytes.ProposalRules.get(),
-                    Txn.application_args[0]
+                    Txn.application_args[1]
                 )),
                 Return(Int(1)),
             ])
             on_finalize = Seq([
                 Assert(setup_phase_approved),
-                Assert(Txn.application_args.length() == Int(0)),
+                Assert(Txn.application_args.length() == Int(1)),
                 GlobalInts.Finalized.put(Int(1)),
                 Return(Int(1)),
             ])
             proposal_appid = Gtxn[1].application_id()
             on_implementproposal = Seq([
-                Assert(And(
-                    Global.group_size() == Int(2),
-                    Txn.group_index() == Int(0),
-                    Gtxn[1].application_args[0] == Bytes('setimplemented'),
-                    proposal_trusted(proposal_appid),
-                    proposal_meets_criteria(proposal_appid, GlobalBytes.ProposalRules.get()),
-                    proposal_passed(proposal_appid),
-                )),
+                Assert(GlobalInts.Finalized.get()),
+                Assert(Global.group_size() == Int(2)),
+                Assert(Txn.group_index() == Int(0)),
+                Assert(Txn.application_args.length() == Int(1)),
+                Assert(Gtxn[1].application_args[0] == Bytes('setimplemented')),
+                Assert(proposal_trusted(proposal_appid, GlobalInts.TrustAsset.get())),
+                Assert(proposal_meets_criteria(proposal_appid, GlobalBytes.ProposalRules.get())),
+                Assert(proposal_passed(proposal_appid)),
                 implement_proposal(proposal_appid),
                 Return(Int(1)),
             ])
@@ -208,16 +207,127 @@ class AlgoDao:
             # TODO: add ability to change governance structure via proposal
             can_update = Return(Int(0))
             return Cond(
-                [Txn.application_id == Int(0), on_creation],
+                [Txn.application_id() == Int(0), on_creation],
                 [Txn.on_completion() == OnComplete.DeleteApplication, can_delete],
                 [Txn.on_completion() == OnComplete.UpdateApplication, can_update],
                 [Txn.application_args[0] == Bytes('addcommittee'), on_addcommittee],
                 [Txn.application_args[0] == Bytes('addrule'), on_addrule],
                 [Txn.application_args[0] == Bytes('finalize'), on_finalize],
+                [Txn.application_args[0] == Bytes('implementproposal'), on_implementproposal]
             )
 
         def clear_program(self) -> Expr:
             return Return(Int(1))
+
+        def global_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(len(AlgoDao.GlobalInts), len(AlgoDao.GlobalBytes))
+
+        def local_schema(self) -> transaction.StateSchema:
+            return transaction.StateSchema(0, 0)
+
+    class DeployedDao(DeployedContract):
+        def __init__(self, algod: AlgodClient, appid: int):
+            info: ApplicationInfo = algod.application_info(appid)
+            self._trust_assetid = readintfromstore(
+                info['params']['global-state'],
+                AlgoDao.GlobalInts.TrustAsset.name.encode()
+            )
+            super(AlgoDao.DeployedDao, self).__init__(appid)
+
+        @property
+        def trust_assetid(self):
+            return self._trust_assetid
+
+        def call_addcommittee(self, algod, addr, privkey, committee_id):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'addcommittee',
+                [
+                    algodao.helpers.int2bytes(committee_id),
+                ],
+            )
+
+        def call_addrule(
+                self,
+                algod,
+                addr,
+                privkey,
+                proposal_type: ProposalType,
+                vote_type: VoteType,
+                win_pct: int,
+        ):
+            if win_pct < 0 or win_pct > 100:
+                raise ValueError(win_pct)
+            rule = (
+                algodao.helpers.int2bytes(proposal_type.value)
+                + algodao.helpers.int2bytes(vote_type.value)
+                + algodao.helpers.int2bytes(win_pct)
+            )
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'addrule',
+                [
+                    rule,
+                ],
+            )
+
+        def call_finalize(self, algod, addr, privkey):
+            return self.call_method(
+                algod,
+                addr,
+                privkey,
+                b'finalize',
+                [],
+            )
+
+        def call_implementproposal(
+                self,
+                algod: AlgodClient,
+                proposal: Proposal.DeployedProposal,
+                addr: str,
+                privkey: str,
+                accounts: List[str],
+        ):
+            params = algod.suggested_params()
+            txn1 = transaction.ApplicationNoOpTxn(
+                addr,
+                params,
+                self.appid,
+                [
+                    b'implementproposal',
+                ],
+                foreign_assets=[self.trust_assetid],
+                accounts=[algosdk.logic.get_application_address(proposal.appid), *accounts],
+                foreign_apps=[proposal.appid],
+            )
+            txn2 = transaction.ApplicationNoOpTxn(
+                addr,
+                params,
+                proposal.appid,
+                [
+                    b'setimplemented',
+                ]
+            )
+            groupid = transaction.calculate_group_id([txn1, txn2])
+            txn1.group = groupid
+            txn2.group = groupid
+            signed1 = txn1.sign(privkey)
+            signed2 = txn2.sign(privkey)
+            try:
+                txid = algod.send_transactions([signed1, signed2])
+                algodao.helpers.wait_for_confirmation(algod, txid)
+            except Exception as exc:
+                algodao.helpers.writedryrun(algod, [signed1, signed2], 'failed_txn')
+                raise
+
+    @classmethod
+    def deploy(cls, algod, createdao: CreateDao, privkey):
+        appid = createdao.deploy(algod, privkey)
+        return AlgoDao.DeployedDao(algod, appid)
 
 
 class PreapprovalGate:
@@ -470,6 +580,10 @@ class PreapprovalGate:
             self._committee_addr: str = algosdk.logic.get_application_address(self._committee_id)
             self._trust_asset_id: Optional[int] = None
             super(PreapprovalGate.DeployedGate, self).__init__(appid)
+
+        @property
+        def trust_assetid(self):
+            return self._trust_asset_id
 
         def call_inittoken(
                 self,
