@@ -77,7 +77,7 @@ def test_proposal():
     regend = regbegin + 1000
     votebegin = regbegin
     voteend = regend
-    num_options = 3
+    num_options = 2
     proposal = algodao.voting.Proposal.CreateProposal(
         "Test Proposal",
         token,
@@ -85,7 +85,9 @@ def test_proposal():
         regend,
         votebegin,
         voteend,
-        num_options
+        num_options,
+        0,
+        algodao.voting.ProposalType.PAYMENT
     )
     deployed = algodao.voting.Proposal.deploy(algod, proposal, creatorprivkey)
     appaddr = algosdk.logic.get_application_address(deployed.appid)

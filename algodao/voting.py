@@ -13,7 +13,8 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
 from pyteal import Int, Expr, Return, Bytes, App, Assert, InnerTxnBuilder
 from pyteal import Txn, Btoi, Global, Seq, And, TxnField, Concat, TxnType
-from pyteal import Gtxn, Cond, OnComplete, Mode, InnerTxn
+from pyteal import Gtxn, Cond, OnComplete, Subroutine, Or, If, Itob
+from pyteal import TealType, Substring, ScratchVar
 
 import algodao.deploy
 import algodao.helpers
@@ -24,6 +25,49 @@ from algodao.assets import ElectionToken, GovernanceToken, TokenDistributionTree
 log = logging.getLogger(__name__)
 
 
+class ProposalType(enum.Enum):
+    PAYMENT = 0
+    ADD_COMMITTEE_MEMBER = 1
+    CLOSE_AND_DISBURSE = 2
+    EJECT_COMMITTEE_MEMBER = 3
+    NEW_COMMITTEE = 4
+
+
+class VoteType(enum.Enum):
+    COMMITTEE = 0
+    GOVERNANCE_TOKEN = 1
+
+
+@Subroutine(TealType.uint64)
+def is_updown_vote(votetype: Expr) -> Expr:
+    return Return(Or(
+        votetype == Int(ProposalType.PAYMENT.value),
+        votetype == Int(ProposalType.ADD_COMMITTEE_MEMBER.value),
+        votetype == Int(ProposalType.CLOSE_AND_DISBURSE.value),
+        votetype == Int(ProposalType.EJECT_COMMITTEE_MEMBER.value),
+        votetype == Int(ProposalType.NEW_COMMITTEE.value),
+    ))
+
+
+@Subroutine(TealType.bytes)
+def proposal_payment_address(addl_data: Expr):
+    return Return(Substring(addl_data, Int(0), Int(32)))
+
+
+@Subroutine(TealType.uint64)
+def proposal_payment_amount(addl_data: Expr):
+    return Return(Btoi(Substring(addl_data, Int(32), Int(38))))
+
+
+@Subroutine(TealType.uint64)
+def minvotesneeded(vtype_data: Expr, total_votes: Expr):
+    win_pct = ScratchVar(TealType.uint64)
+    return Seq([
+        win_pct.store(Btoi(Substring(vtype_data, Int(8), Int(16)))),
+        Return(win_pct.load() * total_votes / Int(100))
+    ])
+
+
 class Proposal:
     class GlobalInts(GlobalVariables):
         RegBegin = enum.auto()
@@ -32,9 +76,24 @@ class Proposal:
         VoteEnd = enum.auto()
         VoteAssetId = enum.auto()
         NumOptions = enum.auto()
+        ProposalType = enum.auto()
+        Implemented = enum.auto()
+        DaoId = enum.auto()
+        VoteType = enum.auto()
+        Passed = enum.auto()
+
+        @classmethod
+        def option(cls, num: Expr):
+            return Concat(Bytes("Option"), Itob(num))
+
+        @classmethod
+        def allvotes(cls, num: Expr):
+            return Concat(Bytes("AllVotes"), Itob(num))
 
     class GlobalBytes(GlobalVariables):
         Name = enum.auto()
+        VoteTypeData = enum.auto()
+        AdditionalData = enum.auto()
 
     class CreateProposal(CreateContract):
         def __init__(
@@ -46,6 +105,8 @@ class Proposal:
                 start_vote: int,
                 end_vote: int,
                 num_options: int,
+                daoid: int,
+                proptype: ProposalType,
         ):
             self._name: str = name
             self._token: ElectionToken = token
@@ -54,13 +115,34 @@ class Proposal:
             self._start_vote: int = start_vote
             self._end_vote: int = end_vote
             self._num_options: int = num_options
+            self._proptype: ProposalType = proptype
+            self._daoid: int = daoid
+            self._additionaldata: bytes = b''
+            self._vtypedata: bytes = b''
+
+        def setpaymentinfo(self, receiver: str, amount: int):
+            assert self._proptype == ProposalType.PAYMENT
+            self._additionaldata = (
+                    algosdk.encoding.decode_address(receiver)
+                    + algodao.helpers.int2bytes(amount)
+            )
+
+        def setvotedata(self, votetype: VoteType, win_pct: int):
+            if win_pct <= 0 or win_pct > 100:
+                raise ValueError(f"Invalid win percentage: {win_pct}")
+            # TODO: implement committee votes
+            if votetype != VoteType.GOVERNANCE_TOKEN:
+                raise NotImplementedError(votetype)
+            self._vtypedata = (
+                    algodao.helpers.int2bytes(votetype.value)
+                    + algodao.helpers.int2bytes(win_pct)
+            )
 
         def approval_program(self) -> Expr:
             GlobalInts = Proposal.GlobalInts
             GlobalBytes = Proposal.GlobalBytes
-            expected_args = 7
             on_creation = Seq([
-                Assert(Txn.application_args.length() == Int(expected_args)),
+                Assert(Txn.application_args.length() == Int(9)),
                 GlobalBytes.Name.put(Txn.application_args[0]),
                 GlobalInts.VoteAssetId.put(Btoi(Txn.application_args[1])),
                 GlobalInts.RegBegin.put(Btoi(Txn.application_args[2])),
@@ -68,6 +150,21 @@ class Proposal:
                 GlobalInts.VoteBegin.put(Btoi(Txn.application_args[4])),
                 GlobalInts.VoteEnd.put(Btoi(Txn.application_args[5])),
                 GlobalInts.NumOptions.put(Btoi(Txn.application_args[6])),
+                GlobalInts.ProposalType.put(Btoi(Txn.application_args[7])),
+                GlobalInts.DaoId.put(Btoi(Txn.application_args[8])),
+                GlobalInts.Passed.put(Int(0)),
+                GlobalInts.Implemented.put(Int(0)),
+                GlobalInts.VoteType.put(Int(VoteType.GOVERNANCE_TOKEN.value)),
+                If(
+                    is_updown_vote(GlobalInts.ProposalType.get()),
+                    Seq([
+                        App.globalPut(Concat(Bytes("Option"), Itob(Int(1))), Bytes("Yes")),
+                        App.globalPut(Concat(Bytes("Option"), Itob(Int(2))), Bytes("No")),
+                    ]),
+                    # Currently all implemented vote types are up/down votes;
+                    # to support multioption proposals we could pass in the
+                    # options as additional application args
+                ),
                 Return(Int(1)),
             ])
             on_register = Return(
@@ -106,6 +203,8 @@ class Proposal:
                     Txn.group_index() == Int(0),
                     Gtxn[1].xfer_asset() == GlobalInts.VoteAssetId.get(),
                     Gtxn[1].asset_receiver() == Global.current_application_address(),
+                    Btoi(option) > Int(0),
+                    Btoi(option) <= GlobalInts.NumOptions.get(),
                 )),
                 App.localPut(
                     Txn.sender(),
@@ -118,6 +217,46 @@ class Proposal:
                 ),
                 Return(Int(1)),
             ])
+            yesvotes = ScratchVar(TealType.uint64)
+            novotes = ScratchVar(TealType.uint64)
+            minvotes = ScratchVar(TealType.uint64)
+            on_finalizevote = Seq([
+                Assert(And(
+                    Global.round() > GlobalInts.VoteEnd.get(),
+                )),
+                If(
+                    is_updown_vote(GlobalInts.VoteType.get()),
+                    Seq([
+                        Assert(And(
+                            App.globalGet(GlobalInts.option(Int(1))) == Bytes("Yes"),
+                            App.globalGet(GlobalInts.option(Int(2))) == Bytes("No"),
+                        )),
+                        yesvotes.store(App.globalGet(GlobalInts.allvotes(Int(1)))),
+                        novotes.store(App.globalGet(GlobalInts.allvotes(Int(2)))),
+                        minvotes.store(minvotesneeded(
+                            GlobalBytes.VoteTypeData.get(),
+                            yesvotes.load() + novotes.load()
+                        )),
+                        If(
+                            yesvotes.load() >= minvotes.load(),
+                            GlobalInts.Passed.put(Int(1))
+                        )
+                    ]),
+                    Return(Int(1)),
+                ),
+                Return(Int(0)),
+            ])
+            on_setimplemented = Seq([
+                Assert(And(
+                    Global.group_size() == Int(2),
+                    Txn.group_index() == Int(1),
+                    Gtxn[0].application_id() == GlobalInts.DaoId.get(),
+                    Gtxn[0].application_args[0] == Bytes("implementproposal"),
+                    GlobalInts.Implemented.get() == Int(0),
+                )),
+                GlobalInts.Implemented.put(Int(1)),
+                Return(Int(1)),
+            ])
             on_closeout = Return(Int(1))
             program = Cond(
                 [Txn.application_id() == Int(0), on_creation],
@@ -128,6 +267,8 @@ class Proposal:
                 [Txn.application_args[0] == Bytes("vote"), on_vote],
                 [Txn.application_args[0] == Bytes("optintoken"), on_optintoken],
                 [Txn.application_args[0] == Bytes("setvotetoken"), on_setvotetoken],
+                [Txn.application_args[0] == Bytes("setimplemented"), on_setimplemented],
+                [Txn.application_args[0] == Bytes("finalizevote"), on_finalizevote],
             )
             return program
 
@@ -143,6 +284,8 @@ class Proposal:
                 algodao.helpers.int2bytes(self._start_vote),
                 algodao.helpers.int2bytes(self._end_vote),
                 algodao.helpers.int2bytes(self._num_options),
+                algodao.helpers.int2bytes(self._proptype.value),
+                algodao.helpers.int2bytes(self._daoid)
             ]
 
         def global_schema(self) -> transaction.StateSchema:

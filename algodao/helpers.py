@@ -3,11 +3,10 @@ import logging
 import os
 
 import algosdk
-import pyteal
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from algosdk.v2client.indexer import IndexerClient
-from pyteal import Mode
+from pyteal import Sha512_256, Bytes, Itob, Concat, Expr
 
 from algodao.types import TealKeyValueStore
 
@@ -194,4 +193,10 @@ def readintfromstore(store: TealKeyValueStore, key: bytes) -> int:
             if base64.b64decode(entry['key']) == key
         ),
         0
+    )
+
+
+def appaddr(appid: Expr):
+    return Sha512_256(
+        Concat(Bytes("appID"), Itob(appid))
     )

@@ -8,16 +8,112 @@ from algosdk.v2client.algod import AlgodClient
 from algosdk.future import transaction
 from pyteal import Seq, Assert, App, Return, Int, Btoi, Txn, Expr, Bytes
 from pyteal import Cond, Gtxn, Global, Len, Concat, OnComplete, And, Or, Not
-from pyteal import InnerTxnBuilder, TxnField, TxnType, If, ScratchVar, TealType
-from pyteal import InnerTxn
+from pyteal import InnerTxnBuilder, TxnField, TxnType, If, Subroutine, TealType
+from pyteal import InnerTxn, AssetHolding, ScratchVar, For, Substring
 
 import algodao.helpers
 from algodao.committee import is_member, current_committee_size_ex, set_asset_freeze, send_asset
 from algodao.committee import Committee
-from algodao.contract import CreateContract, DeployedContract, ContractVariables, GlobalVariables
+from algodao.contract import CreateContract, DeployedContract, GlobalVariables
 from algodao.contract import LocalVariables
-from algodao.helpers import readintfromstore, readbytesfromstore
+from algodao.helpers import readintfromstore, appaddr
+from algodao.voting import Proposal, ProposalType, proposal_payment_amount, proposal_payment_address
 from algodao.types import ApplicationInfo
+
+RULE_LEN = 16
+PROPOSAL_RULE_LEN = 24
+
+
+@Subroutine(TealType.uint64)
+def proposal_trusted(proposal_appid: Expr, trust_assetid: Expr):
+    trusted = AssetHolding.balance(appaddr(proposal_appid), trust_assetid)
+    return Seq([
+        trusted,
+        Return(And(trusted.hasValue(), trusted.value() > Int(0)))
+    ])
+
+
+@Subroutine(TealType.bytes)
+def find_rule(proposal_rules: Expr, proposal_type: Expr):
+    index = ScratchVar(TealType.uint64)
+    return Seq([
+        For(
+            index.store(Int(0)),
+            index.load() < Len(proposal_rules),
+            index.store(index.load() + Int(PROPOSAL_RULE_LEN))
+        ).Do(
+            If(
+                Btoi(Substring(proposal_rules, index.load(), index.load() + 8)) == proposal_type,
+                Return(Substring(
+                    proposal_rules,
+                    index.load() + 8,
+                    index.load() + PROPOSAL_RULE_LEN
+                )),
+            )
+        ),
+        # proposal type not found in rules
+        Assert(Int(0))
+    ])
+
+
+@Subroutine(TealType.uint64)
+def satisfies_rule(proposal_appid: Expr, rule: Expr):
+    vote_type = App.globalGetEx(proposal_appid, Proposal.GlobalInts.VoteType.bytes)
+    vtype_data = App.globalGetEx(proposal_appid, Proposal.GlobalBytes.VoteTypeData.bytes)
+    return Seq([
+        vote_type,
+        Assert(vote_type.hasValue()),
+        Return(And(
+            Btoi(Substring(rule, Int(0), Int(8))) == vote_type.value(),
+            Btoi(Substring(rule, Int(8), Int(RULE_LEN)) == vtype_data.value())
+        )),
+    ])
+
+
+@Subroutine(TealType.uint64)
+def proposal_meets_criteria(proposal_appid: Expr, proposal_rules: Expr):
+    proposal_type = App.globalGetEx(proposal_appid, Proposal.GlobalInts.ProposalType.bytes)
+    rule = ScratchVar(TealType.bytes)
+    return Seq([
+        proposal_type,
+        Assert(proposal_type.hasValue()),
+        rule.store(find_rule(proposal_rules, proposal_type)),
+        Return(satisfies_rule(proposal_appid, rule.load())),
+    ])
+
+
+@Subroutine(TealType.uint64)
+def proposal_passed(proposal_appid: Expr):
+    passed = App.globalGetEx(proposal_appid, Proposal.GlobalInts.Passed.bytes)
+    return Seq([
+        passed,
+        Return(And(passed.hasValue(), passed.value()))
+    ])
+
+
+@Subroutine(TealType.none)
+def implement_proposal(proposal_appid: Expr):
+    proposal_type = App.globalGetEx(proposal_appid, Proposal.GlobalInts.ProposalType.bytes)
+    addl_data = App.globalGetEx(proposal_appid, Proposal.GlobalBytes.AdditionalData.bytes)
+    return Seq([
+        proposal_type,
+        addl_data,
+        Assert(And(proposal_type.hasValue(), addl_data.hasValue())),
+        If(
+            proposal_type == Int(ProposalType.PAYMENT.value),
+            Seq([
+
+                InnerTxnBuilder.Begin(),
+                InnerTxnBuilder.SetFields({
+                    TxnField.type_enum: TxnType.Payment,
+                    TxnField.receiver: proposal_payment_address(addl_data),
+                    TxnField.amount: proposal_payment_amount(addl_data),
+                })
+            ])
+
+        )
+        # TODO: implement other proposal types
+    ])
 
 
 class AlgoDao:
@@ -85,6 +181,19 @@ class AlgoDao:
                 GlobalInts.Finalized.put(Int(1)),
                 Return(Int(1)),
             ])
+            proposal_appid = Gtxn[1].application_id()
+            on_implementproposal = Seq([
+                Assert(And(
+                    Global.group_size() == Int(2),
+                    Txn.group_index() == Int(0),
+                    Gtxn[1].application_args[0] == Bytes('setimplemented'),
+                    proposal_trusted(proposal_appid),
+                    proposal_meets_criteria(proposal_appid, GlobalBytes.ProposalRules.get()),
+                    proposal_passed(proposal_appid),
+                )),
+                implement_proposal(proposal_appid),
+                Return(Int(1)),
+            ])
             can_delete = Seq([
                 Return(Or(
                     # DAO has not been finalized and sender is attempting to delete
@@ -109,7 +218,6 @@ class AlgoDao:
 
         def clear_program(self) -> Expr:
             return Return(Int(1))
-
 
 
 class PreapprovalGate:
@@ -438,10 +546,6 @@ class PreapprovalGate:
         return PreapprovalGate.DeployedGate(algod, appid)
 
 
-class VoteType(enum.Enum):
-    COMMITTEE = 0
-    GOVERNANCE_TOKEN = 1
-
 
 class QuorumRequirement(enum.Enum):
     MINIMUM_VOTES = 0
@@ -451,13 +555,6 @@ class ApprovalMechanism(enum.Enum):
     PERCENTAGE_CUTOFF = 0
     TOP_VOTE_GETTERS = 1
 
-
-class ProposalType(enum.Enum):
-    PAYMENT = 0
-    ADD_COMMITTEE_MEMBER = 1
-    CLOSE_AND_DISBURSE = 2
-    EJECT_COMMITTEE_MEMBER = 3
-    NEW_COMMITTEE = 4
 
 
 class GovernanceType:
