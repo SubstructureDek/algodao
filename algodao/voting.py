@@ -56,7 +56,7 @@ def proposal_payment_address(addl_data: Expr):
 
 @Subroutine(TealType.uint64)
 def proposal_payment_amount(addl_data: Expr):
-    return Return(Btoi(Substring(addl_data, Int(32), Int(38))))
+    return Return(Btoi(Substring(addl_data, Int(32), Int(40))))
 
 
 @Subroutine(TealType.uint64)
