@@ -359,8 +359,7 @@ class Proposal:
                 txid = algod.send_transactions([signed1, signed2])
                 algodao.helpers.wait_for_confirmation(algod, txid)
             except Exception as exc:
-                algodao.helpers.writedryrun(algod, signed1, 'failed_txn1')
-                algodao.helpers.writedryrun(algod, signed2, 'failed_txn2')
+                algodao.helpers.writedryrun(algod, [signed1, signed2,], 'failed_txn1')
                 raise
 
         def call_finalizevote(self, algod: AlgodClient, addr: str, privkey: str):

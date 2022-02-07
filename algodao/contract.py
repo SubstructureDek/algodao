@@ -115,7 +115,7 @@ class DeployedContract(abc.ABC):
             txid = algod.send_transaction(signed)
             algodao.helpers.wait_for_confirmation(algod, txid)
         except algosdk.error.AlgodHTTPError as exc:
-            algodao.helpers.writedryrun(algod, signed, 'failed_txn')
+            algodao.helpers.writedryrun(algod, [signed], 'failed_txn')
             raise
         info: PendingTransactionInfo = algod.pending_transaction_info(txid)
         return info
