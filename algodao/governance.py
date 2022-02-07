@@ -669,8 +669,3 @@ class ApprovalMechanism(enum.Enum):
     PERCENTAGE_CUTOFF = 0
     TOP_VOTE_GETTERS = 1
 
-
-
-class GovernanceType:
-    def __init__(self):
-        pass
