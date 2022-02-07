@@ -144,6 +144,10 @@ particular the following gaps currently exist:
   the DAO and subsequent disbursal of funds; and the modification of the DAO
   governance rules are not yet implemented.
 * Quorum rules and vote delegation are not yet implemented.
+* Keep meaning to pull in the standard "best practices" contract checks
+  [as defined here](https://github.com/algorand/pyteal-utils/blob/main/pytealutils/transaction/transaction.py)
+  but keep getting distracted by other items; will remove this bullet when I
+  get around to it.
 
 ## Future Work
 
