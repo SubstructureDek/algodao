@@ -12,6 +12,12 @@ AlgoDao is built on the [Algorand ecosystem](https://www.algorand.com/), using
 and [Algorand Standard Assets (ASA)](https://developer.algorand.org/docs/get-details/asa/)
 that govern the activities of your [DAO](https://en.wikipedia.org/wiki/Decentralized_autonomous_organization).
 
+To see a full end-to-end example of deploying a new DAO and submitting and
+approving a proposal, see the `test_daoproposal` test in
+[tests/test_governance.py](tests/test_governance.py). That test does not include
+the distribution of the election token using a Merkle tree; see 
+`test_distributiontree` in [tests/test_assets.py](tests/test_assets.py).
+
 ## Features
 
 ### Trustless Treasury
