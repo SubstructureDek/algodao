@@ -12,12 +12,6 @@ AlgoDao is built on the [Algorand ecosystem](https://www.algorand.com/), using
 and [Algorand Standard Assets (ASA)](https://developer.algorand.org/docs/get-details/asa/)
 that govern the activities of your [DAO](https://en.wikipedia.org/wiki/Decentralized_autonomous_organization).
 
-To see a full end-to-end example of deploying a new DAO and submitting and
-approving a proposal, see the `test_daoproposal` test in
-[tests/test_governance.py](tests/test_governance.py). That test does not include
-the distribution of the election token using a Merkle tree; see 
-`test_distributiontree` in [tests/test_assets.py](tests/test_assets.py).
-
 ## Setup
 
 To use the code in this repository, run `pip install -r requirements.txt` and,
@@ -25,7 +19,9 @@ for development work, `pip install -r requirements-dev.txt`. All tests are
 written against the Algorand sandbox running in release mode. Make sure the
 sandbox is running (`./sandbox start release`) and then set the `SANDBOX_DIR`
 environment variable either directly (`export SANDBOX_DIR=/path/to/sandbox`)
-or by adding it to a `.env` file in the current directly. 
+or by adding it to a `.env` file in the current directly.
+
+To run the full end to end example, run `python -m algodao.scripts.end2end`.
 
 ## Features
 
