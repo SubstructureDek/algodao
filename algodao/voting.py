@@ -399,7 +399,7 @@ class Election:
         balance_dict: Dict[str, int] = self.gettokencounts()
         votedist: OrderedDict[str, int] = OrderedDict(
             (address, self._gov2votes(govcount))
-            for address, govcount in balance_dict
+            for address, govcount in balance_dict.items()
         )
         return TokenDistributionTree.CreateTree(
             self._vote_token,

@@ -85,6 +85,14 @@ class TokenDistributionTree:
             self._endreg: int = endreg
             super(TokenDistributionTree.CreateTree, self).__init__()
 
+        @property
+        def addr2count(self):
+            return self._addr2count
+
+        @property
+        def merkletree(self):
+            return self._tree
+
         def local_schema(self) -> transaction.StateSchema:
             return transaction.StateSchema(0, 0)
 
@@ -126,7 +134,7 @@ class TokenDistributionTree:
                     TxnField.asset_amount: Int(0),
                 }),
                 InnerTxnBuilder.Submit(),
-                GlobalInts.AssetId.put(Int(self._token.asset_id)),
+                GlobalInts.AssetId.put(Btoi(Txn.application_args[1])),
                 Return(Int(1)),
             ])
             on_inittoken = Seq([

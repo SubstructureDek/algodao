@@ -49,7 +49,7 @@ def test_daoproposal():
         daoid=deployeddao.appid,
         win_pct=60,
     )
-    waitforoundround = algod.status()['last-round'] + 11
+    waitforoundround = algod.status()['last-round'] + 21
     preapprove_proposal(algod, gate, deployedproposal, creatoraddr, creatorprivkey)
     algodao.helpers.optinapp(algod, creatorprivkey, creatoraddr, deployedproposal.appid)
     deployedproposal.call_vote(algod, creatoraddr, creatorprivkey, 1, 10)

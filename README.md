@@ -18,6 +18,15 @@ approving a proposal, see the `test_daoproposal` test in
 the distribution of the election token using a Merkle tree; see 
 `test_distributiontree` in [tests/test_assets.py](tests/test_assets.py).
 
+## Setup
+
+To use the code in this repository, run `pip install -r requirements.txt` and,
+for development work, `pip install -r requirements-dev.txt`. All tests are
+written against the Algorand sandbox running in release mode. Make sure the
+sandbox is running (`./sandbox start release`) and then set the `SANDBOX_DIR`
+environment variable either directly (`export SANDBOX_DIR=/path/to/sandbox`)
+or by adding it to a `.env` file in the current directly. 
+
 ## Features
 
 ### Trustless Treasury
@@ -147,13 +156,16 @@ particular the following gaps currently exist:
 * The only `Proposal` type currently supported is the `PAYMENT` type (to 
   disburse a specified amount to a specific address). Votes on adding and
   removing committee members; creation of new committees; the closing of 
-  the DAO and subsequent disbursal of funds; and the modification of the DAO
+  the DAO and subsequent disbursal of funds; and the modification of the DAO 
   governance rules are not yet implemented.
 * Quorum rules and vote delegation are not yet implemented.
 * Keep meaning to pull in the standard "best practices" contract checks
   [as defined here](https://github.com/algorand/pyteal-utils/blob/main/pytealutils/transaction/transaction.py)
   but keep getting distracted by other items; will remove this bullet when I
   get around to it.
+* Proposal rules are currently only checked and enforced when the DAO attempts
+  to implement a passed proposal. They should also be checked and enforced when
+  creating the proposal.
 
 ## Future Work
 
@@ -172,3 +184,16 @@ AlgoDao, you would certainly want to ensure the contracts here are air-tight
 and failsafe before using it with any seriousness, which would require further
 auditing. As mentioned at the top of this README, **this project has not been
 audited for security and is for informational purposes only**.
+
+## End-to-end Example
+
+The beginning of a CLI is implemented on the `feature/cli` branch; this turned
+out to be much more repetitive work handling all of the possible command line
+argument variations than anticipated so it is unfinished. In the meantime there
+is a full example of deploying a DAO, initializing an election token, creating
+and voting on a proposal, and then implementing the proposal in 
+[algodao/scripts/end2end.py](algodao/scripts/end2end.py). This code snippet
+is essentially a combination of the `test_daoproposal` test in
+[tests/test_governance.py](tests/test_governance.py) and the
+`test_distributiontree` test in [tests/test_assets.py](tests/test_assets.py).
+

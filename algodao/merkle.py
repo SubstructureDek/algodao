@@ -43,9 +43,13 @@ class MerkleTree:
         # pad to 2**n for simplicity in implementation
         self._depth = int(math.ceil(math.log(len(leaves))))
         numleaves = 2**self._depth
+        # special case for len(leaves) == 1
+        if numleaves == 1:
+            numleaves = 2
+            self._depth = 1
         zeronode = Node.from_value(bytes(0))
         self._leaves = leaves + [zeronode] * (numleaves - len(leaves))
-        self._root: Node = self._buildtree(leaves)
+        self._root: Node = self._buildtree(self._leaves)
         self._levels: Dict[int, List[Node]] = self._createlevels()
 
     @property
