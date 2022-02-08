@@ -17,7 +17,6 @@ from tests.test_assets import _createnft
 log = logging.getLogger(__name__)
 
 
-
 def test_createaccount():
     amount = 100000
     client = algodao.helpers.createclient()
