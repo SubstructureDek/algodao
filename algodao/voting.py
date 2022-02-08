@@ -166,6 +166,7 @@ class Proposal:
                     # Currently all implemented vote types are up/down votes;
                     # to support multioption proposals we could pass in the
                     # options as additional application args
+                    Assert(Int(0)),
                 ),
                 Return(Int(1)),
             ])
