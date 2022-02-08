@@ -66,6 +66,7 @@ deployeddao.call_addrule(
     VoteType.GOVERNANCE_TOKEN,
     60
 )
+tests.helpers.fund_account(algod, algosdk.logic.get_application_address(deployeddao.appid))
 deployeddao.call_finalize(algod, creatoraddr, creatorprivkey)
 
 # create the election token
