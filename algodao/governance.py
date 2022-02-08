@@ -101,13 +101,13 @@ def implement_proposal(proposal_appid: Expr):
         If(
             proposal_type.value() == Int(ProposalType.PAYMENT.value),
             Seq([
-
                 InnerTxnBuilder.Begin(),
                 InnerTxnBuilder.SetFields({
                     TxnField.type_enum: TxnType.Payment,
                     TxnField.receiver: proposal_payment_address(addl_data.value()),
                     TxnField.amount: proposal_payment_amount(addl_data.value()),
-                })
+                }),
+                InnerTxnBuilder.Submit(),
             ])
 
         )

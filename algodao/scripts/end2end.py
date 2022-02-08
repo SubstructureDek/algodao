@@ -135,7 +135,7 @@ algodao.helpers.optinapp(algod, creatorprivkey, creatoraddr, deployedproposal.ap
 deployedproposal.call_vote(algod, creatoraddr, creatorprivkey, 1, 10)
 algodao.helpers.wait_for_round(algod, waitforoundround)
 deployedproposal.call_finalizevote(algod, creatoraddr, creatorprivkey)
-before = algod.account_info(receiverprivkey)
+before = algod.account_info(receiveraddr)
 deployeddao.call_implementproposal(
     algod,
     deployedproposal,
@@ -143,6 +143,6 @@ deployeddao.call_implementproposal(
     creatorprivkey,
     accounts=[receiveraddr],
 )
-after = algod.account_info(receiverprivkey)
+after = algod.account_info(receiveraddr)
 print(f"Before implementing proposal, receiver account: {before}")
 print(f"After implementing proposal, receiver amount: {after}")

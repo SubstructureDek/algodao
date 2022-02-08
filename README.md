@@ -155,13 +155,15 @@ particular the following gaps currently exist:
   the DAO and subsequent disbursal of funds; and the modification of the DAO 
   governance rules are not yet implemented.
 * Quorum rules and vote delegation are not yet implemented.
-* Keep meaning to pull in the standard "best practices" contract checks
+* I keep meaning to pull in the standard "best practices" contract checks
   [as defined here](https://github.com/algorand/pyteal-utils/blob/main/pytealutils/transaction/transaction.py)
   but keep getting distracted by other items; will remove this bullet when I
   get around to it.
 * Proposal rules are currently only checked and enforced when the DAO attempts
-  to implement a passed proposal. They should also be checked and enforced when
-  creating the proposal.
+  to implement a passed proposal. While this is sufficient for ensuring only
+  valid proposals are implemented, it should also be checked when the 
+  Proposal is created to prevent going through the motions of a vote only for
+  it to be rejected at the end by the DAO contract.
 
 ## Future Work
 
