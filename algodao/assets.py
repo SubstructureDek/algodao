@@ -85,6 +85,8 @@ class TokenDistributionTree:
             # readable representation; e.g., if address 'abcd' is assigned a
             # count of 8, the leaf value that is hashed is:
             # b'abcd:\x00\x00\x00\x00\x00\x00\x00\x10'
+            # Similarly the address is the decoded 32-byte address so that it
+            # matches Txn.sender()
             inputs: List[bytes] = [
                 algosdk.encoding.decode_address(address) + b':' + algodao.helpers.int2bytes(count)
                 for address, count in self._addr2count.items()
@@ -177,8 +179,8 @@ class TokenDistributionTree:
                 Assert(
                     And(
                         Txn.application_args.length() == Int(4),
-                        # Global.round() >= GlobalInts.RegBegin.get(),
-                        # Global.round() <= GlobalInts.RegEnd.get(),
+                        Global.round() >= GlobalInts.RegBegin.get(),
+                        Global.round() <= GlobalInts.RegEnd.get(),
                     )
                 ),
                 runninghash.store(Sha256(Concat(Txn.sender(), Bytes(':'), count))),

@@ -15,7 +15,8 @@ def test_approvalgate():
     creatorprivkey, creatoraddr = tests.helpers.create_funded(algod)
     deployedcommittee = create_trustcommittee(algod, creatoraddr, creatorprivkey)
     gate = create_preapprovalgate(algod, deployedcommittee, creatoraddr, creatorprivkey)
-    deployedproposal = create_proposal(algod, gate, creatoraddr, creatorprivkey)
+    token = ElectionToken(_createnft(algod, creatoraddr, creatorprivkey))
+    deployedproposal = create_proposal(algod, gate, creatoraddr, creatorprivkey, token)
     preapprove_proposal(algod, gate, deployedproposal, creatoraddr, creatorprivkey)
 
 
@@ -27,6 +28,7 @@ def test_daoproposal():
     dao = AlgoDao.CreateDao("My DAO", gate.trust_assetid)
     receiverprivkey, receiveraddr = tests.helpers.create_funded(algod)
     deployeddao = AlgoDao.deploy(algod, dao, creatorprivkey)
+    tests.helpers.fund_account(algod, algosdk.logic.get_application_address(deployeddao.appid))
     deployeddao.call_addrule(
         algod,
         creatoraddr,
@@ -74,15 +76,13 @@ def create_proposal(
         gate,
         addr,
         privkey,
-        token: Optional[ElectionToken] = None,
+        token: ElectionToken = None,
         payee: Optional[str] = None,
         payee_amount: Optional[int] = None,
         voting_rounds: int = 1000,
         daoid: int = 0,
         win_pct: Optional[int] = None,
 ) -> Proposal.DeployedProposal:
-    if token is None:
-        token = ElectionToken(10)
     lastround = algod.status()['last-round']
     proposal = Proposal.CreateProposal(
         "Test Proposal",
@@ -101,7 +101,7 @@ def create_proposal(
         proposal.setvotedata(VoteType.GOVERNANCE_TOKEN, win_pct)
     deployedproposal = Proposal.deploy(algod, proposal, privkey)
     tests.helpers.fund_account(algod, algosdk.logic.get_application_address(deployedproposal.appid))
-    deployedproposal.call_optintoken(algod, addr, privkey, gate._trust_asset_id)
+    deployedproposal.call_optintoken(algod, addr, privkey, gate.trust_assetid)
     deployedproposal.call_optintoken(algod, addr, privkey, token.asset_id)
     return deployedproposal
 
