@@ -1,3 +1,9 @@
+"""
+This module defines a set of TypedDicts that represent the JSON returned by the
+Algorand v2 API. This is not meant to be exhaustive and in many cases only
+explicitly includes the fields that are currently being used by the algodao
+repository.
+"""
 from __future__ import annotations
 
 from typing import List, TypedDict, Any

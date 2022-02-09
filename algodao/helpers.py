@@ -214,3 +214,5 @@ def wait_for_round(client, round):
         last_round += 1
         client.status_after_block(last_round)
         log.info(f"Round {last_round}")
+
+

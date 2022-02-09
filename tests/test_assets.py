@@ -18,13 +18,16 @@ def test_distributiontree():
     creatorprivkey, creatoraddr = tests.helpers.add_standalone_account()
     tests.helpers.fund_account(algod, creatoraddr, amount)
     token = algodao.voting.ElectionToken(_createnft(algod, creatoraddr, creatorprivkey))
-    userprivkey, useraddr = tests.helpers.add_standalone_account()
+    # userprivkey, useraddr = tests.helpers.add_standalone_account()
+    # use constants here to make this easier to debug
+    useraddr = 'A6CKE3FHSJQ7GI5GQ6KTEHZOEXD6PWB5EIXLDQQMCAIHBK7L4RF5OQNWQY'
+    userprivkey = 'VvE3HiC5lpxJj6P244CZUWkx5/MUmS4JJ758Eei8suIHhKJsp5Jh8yOmh5UyHy4lx+fYPSIuscIMEBBwq+vkSw=='
     tests.helpers.fund_account(algod, useraddr, amount)
     addr2count: OrderedDict[str, int] = OrderedDict({
         useraddr: 1000,
-        'b'*64: 1500,
-        'c'*64: 2200,
-        'd'*64: 1523,
+        algosdk.account.generate_account()[1]: 1500,
+        algosdk.account.generate_account()[1]: 2200,
+        algosdk.account.generate_account()[1]: 1523,
     })
     status = algod.status()
     beginreg = status['last-round']

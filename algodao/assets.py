@@ -1,3 +1,6 @@
+"""
+Contracts and helper functions/classes for dealing with ASAs.
+"""
 import abc
 import binascii
 import enum
@@ -6,19 +9,19 @@ import base64
 import hashlib
 import logging
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List
 
 import pyteal
 import algosdk.logic
 from algosdk.future import transaction
 from algosdk.v2client.algod import AlgodClient
 from pyteal import App, Seq, Bytes, Btoi, Txn, Int, Assert, Return, AssetHolding
-from pyteal import Cond, Global, Mode, InnerTxnBuilder, TxnField, TxnType
+from pyteal import Cond, Global, InnerTxnBuilder, TxnField, TxnType
 from pyteal import InnerTxn, And, ScratchVar, TealType, Sha256, Concat
 from pyteal import OnComplete, Len, For, If, Substring, Expr
 
 import algodao.deploy
-from algodao.contract import CreateContract, DeployedContract, GlobalVariables, LocalVariables
+from algodao.contract import CreateContract, DeployedContract, GlobalVariables
 from algodao.helpers import wait_for_confirmation
 from algodao.merkle import MerkleTree
 from algodao.types import PendingTransactionInfo, AccountInfo
@@ -53,6 +56,12 @@ class GovernanceToken(Token):
 
 
 class TokenDistributionTree:
+    """
+    The TokenDistributionTree contract allows callers to claim a specific
+    count of a specified token in accordance with a Merkle tree root hash
+    where the leaves of the tree contain the address and the count for
+    that address, separated by a colon.
+    """
     class GlobalInts(GlobalVariables):
         RegBegin = enum.auto()
         RegEnd = enum.auto()
@@ -77,7 +86,7 @@ class TokenDistributionTree:
             # count of 8, the leaf value that is hashed is:
             # b'abcd:\x00\x00\x00\x00\x00\x00\x00\x10'
             inputs: List[bytes] = [
-                f'{address}:'.encode('utf-8') + algodao.helpers.int2bytes(count)
+                algosdk.encoding.decode_address(address) + b':' + algodao.helpers.int2bytes(count)
                 for address, count in self._addr2count.items()
             ]
             self._tree = MerkleTree(inputs)
@@ -160,20 +169,19 @@ class TokenDistributionTree:
                     Global.round() <= App.globalGet(Bytes("RegEnd")),
                 )
             )
-            address = Txn.application_args[1]  # bytes
-            count = Txn.application_args[2]  # bytes representation of a uint64
-            index = Btoi(Txn.application_args[3])  # uint64
-            proof = Txn.application_args[4]  # bytes
+            count = Txn.application_args[1]  # bytes representation of a uint64
+            index = Btoi(Txn.application_args[2])  # uint64
+            proof = Txn.application_args[3]  # bytes
             runninghash = ScratchVar(TealType.bytes)
             on_claim = Seq([
                 Assert(
                     And(
-                        Txn.application_args.length() == Int(5),
-                        Global.round() >= GlobalInts.RegBegin.get(),
-                        Global.round() <= GlobalInts.RegEnd.get(),
+                        Txn.application_args.length() == Int(4),
+                        # Global.round() >= GlobalInts.RegBegin.get(),
+                        # Global.round() <= GlobalInts.RegEnd.get(),
                     )
                 ),
-                runninghash.store(Sha256(Concat(address, Bytes(':'), count))),
+                runninghash.store(Sha256(Concat(Txn.sender(), Bytes(':'), count))),
                 self.verifymerkle(index, proof, runninghash, GlobalBytes.RootHash.get()),
                 self.transferelectiontokens(Btoi(count)),
                 Return(Int(1)),
@@ -291,7 +299,6 @@ class TokenDistributionTree:
                 privkey,
                 b'claim',
                 [
-                    addr.encode('utf-8'),
                     algodao.helpers.int2bytes(count),
                     algodao.helpers.int2bytes(index),
                     proof_bytes
