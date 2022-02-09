@@ -39,6 +39,12 @@ def is_member(asset_id: Expr, address: Expr) -> Expr:
 
 @Subroutine(TealType.uint64)
 def current_committee_size_ex(app_id: Expr, app_addr: Expr):
+    """
+    Find the current number of committee members by subtracting
+    the number of assets currently owned by the Committee contract from
+    the max members allowed (i.e., the total number of assets
+    created).
+    """
     assetid = App.globalGetEx(app_id, Bytes("AssetId"))
     maxmembers = App.globalGetEx(app_id, Bytes("MaxMembers"))
     reservebalance = AssetHolding.balance(app_addr, assetid.value())
@@ -80,12 +86,14 @@ def send_asset(address: Expr, assetid: Expr):
        InnerTxnBuilder.Submit(),
     ])
 
+
 @Subroutine(TealType.none)
 def add_member(address: Expr) -> Expr:
     return Seq([
         send_asset(address, App.globalGet(Bytes("AssetId"))),
         set_asset_freeze(address, App.globalGet(Bytes("AssetId")), Int(1)),
     ])
+
 
 @Subroutine(TealType.none)
 def add_members(addresses: Expr) -> Expr:

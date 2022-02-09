@@ -1,3 +1,6 @@
+"""
+Top-level contracts for deploying the DAO
+"""
 from __future__ import annotations
 
 import enum
@@ -27,6 +30,9 @@ PROPOSAL_RULE_LEN = 24
 
 @Subroutine(TealType.uint64)
 def proposal_trusted(proposal_appid: Expr, trust_assetid: Expr):
+    """
+    Check that the proposal is trusted (has been assigned a Trust token)
+    """
     trusted = AssetHolding.balance(appaddr(proposal_appid), trust_assetid)
     return Seq([
         trusted,
@@ -36,6 +42,9 @@ def proposal_trusted(proposal_appid: Expr, trust_assetid: Expr):
 
 @Subroutine(TealType.bytes)
 def find_rule(proposal_rules: Expr, proposal_type: Expr):
+    """
+    Find the rule that applies to the specified proposal type
+    """
     index = ScratchVar(TealType.uint64)
     return Seq([
         For(
@@ -61,6 +70,9 @@ def find_rule(proposal_rules: Expr, proposal_type: Expr):
 
 @Subroutine(TealType.uint64)
 def satisfies_rule(proposal_appid: Expr, rule: Expr):
+    """
+    Check that the given Proposal satisfies the specified rule
+    """
     vtype_data = App.globalGetEx(proposal_appid, Proposal.GlobalBytes.VoteTypeData.bytes)
     return Seq([
         vtype_data,
@@ -71,6 +83,10 @@ def satisfies_rule(proposal_appid: Expr, rule: Expr):
 
 @Subroutine(TealType.uint64)
 def proposal_meets_criteria(proposal_appid: Expr, proposal_rules: Expr):
+    """
+    Check that the proposal meets the criteria specified by the DAO for this
+    type of proposal.
+    """
     proposal_type = App.globalGetEx(proposal_appid, Proposal.GlobalInts.ProposalType.bytes)
     rule = ScratchVar(TealType.bytes)
     return Seq([
@@ -116,6 +132,9 @@ def implement_proposal(proposal_appid: Expr):
 
 
 class AlgoDao:
+    """
+    The top-level contract representing the DAO.
+    """
     class GlobalInts(GlobalVariables):
         Finalized = enum.auto()
         Closed = enum.auto()
@@ -331,6 +350,20 @@ class AlgoDao:
 
 
 class PreapprovalGate:
+    """
+    A statically deployed smart contract (i.e., one that is created when the
+    DAO is created and that all subsequent proposals pass through) that allows
+    the Trusted committee to ensure submitted proposals (which are new smart
+    contracts) are trustworthy (i.e., that they are implemented with the
+    approved TEAL code).
+
+    This is needed because TEAL does not provide a way for smart contracts to
+    deploy their own contracts, or to verify that other contracts are
+    implemented in a specific way. When the committee verifies that a given
+    proposal is legitimate (e.g., by checking the hash of the deployed contract)
+    this contract passes along a single Trusted ASA token to indicate to the
+    governance contract that it should be followed.
+    """
     class GlobalInts(GlobalVariables):
         Initialized = enum.auto()
         ConsideredAppId = enum.auto()
@@ -354,20 +387,6 @@ class PreapprovalGate:
         pass
 
     class CreateGate(CreateContract):
-        """
-        A statically deployed smart contract (i.e., one that is created when the
-        DAO is created and that all subsequent proposals pass through) that allows
-        the Trusted committee to ensure submitted proposals (which are new smart
-        contracts) are trustworthy (i.e., that they are implemented with the
-        approved TEAL code).
-
-        This is needed because TEAL does not provide a way for smart contracts to
-        deploy their own contracts, or to verify that other contracts are
-        implemented in a specific way. When the committee verifies that a given
-        proposal is legitimate (e.g., by checking the hash of the deployed contract)
-        this contract passes along a single Trusted ASA token to indicate to the
-        governance contract that it should be followed.
-        """
         def __init__(
                 self,
                 committee_id: int,
@@ -662,10 +681,18 @@ class PreapprovalGate:
 
 
 class QuorumRequirement(enum.Enum):
+    """
+    Specify a requirement for a quorum; not implemented.
+    """
     MINIMUM_VOTES = 0
 
 
 class ApprovalMechanism(enum.Enum):
+    """
+    Specify an approval mechanism for a proposal; not implemented (all
+    supported proposals are up/down votes with a required win percentage
+    specified as a proposal rule).
+    """
     PERCENTAGE_CUTOFF = 0
     TOP_VOTE_GETTERS = 1
 

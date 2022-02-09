@@ -1,3 +1,8 @@
+"""
+General construct for building smart contracts. Each smart contract is split
+into two classes - one representing a contract as it is being created
+(CreateContract), and one representing a deployed contract (DeployedContract).
+"""
 import abc
 import enum
 from typing import List

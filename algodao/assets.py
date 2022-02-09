@@ -315,6 +315,11 @@ class TokenDistributionTree:
 
 
 class NftCheckProgram:
+    """
+    This was a testing contract to familiarize myself with working with ASAs
+    and smart contracts. It is not used by the AlgoDao. It's left here as a
+    simple example.
+    """
     def approval_program(self) -> Expr:
         on_creation = Seq(
             [
